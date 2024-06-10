@@ -14,8 +14,10 @@ import sys
 import os 
 import subprocess
 from datetime import datetime
+from time import time 
 import json 
- 
+import openpyxl
+
 extensions = [".CATPart", ".CATProduct",".CGR","CATProcess",".model","3dxml",".plmxml",".jt", ".prt",".asm",".ifc",".sldprt",".sldasm",".stp", ".step",".stl",".iam",".ipt",".x_t",".dwg"]
 ## certaines extensions sont en train d'être ajoutées : .fbx , .dgn . 
 
@@ -48,7 +50,6 @@ def donnees_config_files( path_CLI_local , path_XRCENTER_local ):
             return None
         file = open(config_files, 'r')
         print("file ", file)
-#        with open(config_files, 'r') as file:                                               #on ouvre le fichier annexe
         config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
         print(config_files_dictionnaire)
     #  config_files_dictionnaire = {key.lower(): value for key, value in config_files_dictionnaire.items()}            #on met tout en minuscule au cas ou le client ne respecte pas la police a la lettre
@@ -137,23 +138,43 @@ def scan_CAD(liste_fichiers, fichiers_CAD, path_dossier):
         return False 
     return True
 
-# Importer les fichiers scannés dans le CLI 
+# Importer les fichiers scannés dans le CLI     
 
 
-def import_dossiers_CAD(liste_fichiers, save_id_workspace , path_XRCENTER_local):
+
+
+def import_dossiers_CAD(liste_fichiers, save_id_workspace , path_XRCENTER_local, time_record):
     print("vos dossiers vont être ajoutés à SkyReal")
     for k in range(0,len(liste_fichiers)):
+        start = time()
         commande_fichier_import= f'& "{path_XRCENTER_local}"  cad import "{save_id_workspace}" "{liste_fichiers[k]}"' #commande pour importer sur le deck
-        import_total = subprocess.run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
-    if "failed" in import_total.stdout.lower():
-        print('Vos dossiers ne se sont pas mis dans SkyReal')   
-        return False
+        import_final = subprocess.run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
+        end = time()
+        temps_import= end - start
+        time_record.append( temps_import)                                           #on mesure le temps de chaque import
+        print(import_final.stdout.lower())
+        if "failed" or "error" in import_final.stdout.lower():
+            print('Vos dossiers ne se sont pas mis dans SkyReal')   
+            return False
     else:
         print('vos dossiers sont dans SkyReal')
     return True
 
 
-      
+def write_in_excel(fichiers_CAD, time_record):  #fichier .xlsx
+    data_in_excel = []
+    filename = input( 'quel est le nom de votre fichier excel?')
+    filename += '.xlsx'
+    for k in range(0, len(fichiers_CAD)):
+        data_in_excel.append([fichiers_CAD[k], time_record[k]])
+    workbook = openpyxl.Workbook()          # créer un nouveau workbook 
+    sheet = workbook.active                 #prendre la sheet actuelle
+    for row_index, row_data in enumerate(data_in_excel, start=1):        #on se balade dans les lignes à partir de la première
+        for col_index, cell_data in enumerate(row_data, start=1):          #on se balade dans les colonnes à partir de la première
+            sheet.cell(row=row_index, column=col_index, value=cell_data)            
+    workbook.save(filename)   # on sauvegarde les données
+    print(f"les données ont bien été écrites dans votre excel '{filename}'")
+    return data_in_excel
 
 
 def main():
@@ -184,6 +205,7 @@ def main():
     liste_fichiers=[]
     fichiers_CAD = []
     save_id_workspace=''                    
+    time_record= []
     
     if not creation_workspace_deck(save_id_workspace, path_XRCENTER_local):
         return
@@ -194,8 +216,12 @@ def main():
     print(fichiers_CAD)
     
     
-    if not import_dossiers_CAD(liste_fichiers, save_id_workspace, path_XRCENTER_local):
+    if not import_dossiers_CAD(liste_fichiers, save_id_workspace, path_XRCENTER_local, time_record):
+        print(" l'import ne s est pas effectué")
         return
+
+    data_in_excel=write_in_excel(fichiers_CAD, time_record)
+    print(data_in_excel)
     
     return 
     
@@ -206,7 +232,7 @@ main()   ## on execute la fonction
     
     
     
-
+ 
 
 
 
