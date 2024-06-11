@@ -49,12 +49,8 @@ def donnees_config_files( path_CLI_local , path_XRCENTER_local ):
             print("le fichier n est pas pris en compte")
             return None
         file = open(config_files, 'r')
-        print("file ", file)
         config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
-        print(config_files_dictionnaire)
-    #  config_files_dictionnaire = {key.lower(): value for key, value in config_files_dictionnaire.items()}            #on met tout en minuscule au cas ou le client ne respecte pas la police a la lettre
         path_XRCENTER_local = config_files_dictionnaire["adresse_xrcenter"] 
-        print( "path_XRCENTER_local", path_XRCENTER_local)
         path_CLI_local =  config_files_dictionnaire["adresse_cli"]
         if (path_XRCENTER_local == None) or (path_CLI_local == None): 
             print('Les clés ADRESSE_XRCENTER ou ADRESSE_CLI sont manquantes dans le fichier de configuration.')
@@ -66,7 +62,6 @@ def donnees_config_files( path_CLI_local , path_XRCENTER_local ):
 
 def verif_XRCENTER(path_XRCENTER_local):
     commande_XRCENTER_opti1= f'& "{path_XRCENTER_local}" health ping'
-    print("commande xrcenter ", commande_XRCENTER_opti1)
     XRCENTER_ope = subprocess.run(["Powershell", "-Command", commande_XRCENTER_opti1], capture_output=True, text=True)
     if 'success' in XRCENTER_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
         print("XRCenter opérationnel")
@@ -96,7 +91,6 @@ def verif_XRCENTER(path_XRCENTER_local):
 def creation_workspace_deck(save_id_workspace, path_XRCENTER_local):
     workspace_json={}
     print('Un nouveau workspace sera crée pour vos dossiers dans le Deck SkyReal')
-    print("path_XRCENTER_local", path_XRCENTER_local)
     date = datetime.now().strftime("%Y-%m-%d %H:%M")                    ## le nom du workspace correspond à la date de sa création 
     creation_workspace= f'& "{path_XRCENTER_local}" workspace create --name workspace_"{date}"'
     nouveau_workspace= subprocess.run(["Powershell", "-Command", creation_workspace], capture_output=True, text=True)
@@ -104,7 +98,7 @@ def creation_workspace_deck(save_id_workspace, path_XRCENTER_local):
     save_id_workspace= workspace_json["EntityId"]
     if nouveau_workspace.stderr != '':   #on vérifie qu'il n'y a pas d'erreurs, à compléter plus tard
         print('il y a un problème avec le workspace')
-        return False
+        return None
     return save_id_workspace
 
 
@@ -130,7 +124,7 @@ def scan_CAD(liste_fichiers, fichiers_CAD, path_dossier):
     else: 
         for k in range(0,len(liste_fichiers)):
             for i in range(0, len(extensions)):                             #on s'arrête s'il n'existe pas de fichers CAD
-                if liste_fichiers[k].endswith(extensions[i]) == True :      #c'est un dossier CAD
+                if liste_fichiers[k].lower().endswith(extensions[i].lower()) == True :      #c'est un dossier CAD, on regarde son extension en minuscule pour le rendre insensible a la casse
                     fichiers_CAD.append(liste_fichiers[k])
                     break                                                   #on n'a pas besoin de regarder le reste des extensions
     if (fichiers_CAD == []):                                                # il n'y avait pas de fichiers à traiter
@@ -138,32 +132,38 @@ def scan_CAD(liste_fichiers, fichiers_CAD, path_dossier):
         return False 
     return True
 
+
 # Importer les fichiers scannés dans le CLI     
 
 
 
+def import_fichier_CAD(time_record, save_id_workspace, path_XRCENTER_local, fichier):
+    start = time()
+    commande_fichier_import= f'& "{path_XRCENTER_local}"  cad import "{save_id_workspace}" "{fichier}"' #commande pour importer sur le deck
+    import_final = subprocess.run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
+    end = time()
+    temps_import= end - start
+    if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower():
+            print(f'Le dossier "{fichier}"ne s est pas mis dans SkyReal')   
+            time_record.append('error')
+    else: 
+        time_record.append(temps_import)                        #on mesure le temps de chaque import
+    return
+    
 
-def import_dossiers_CAD(liste_fichiers, save_id_workspace , path_XRCENTER_local, time_record):
+# importer le dossier complet
+    
+def import_dossiers_CAD(fichiers_CAD, save_id_workspace , path_XRCENTER_local, time_record):
     print("vos dossiers vont être ajoutés à SkyReal")
-    for k in range(0,len(liste_fichiers)):
-        start = time()
-        commande_fichier_import= f'& "{path_XRCENTER_local}"  cad import "{save_id_workspace}" "{liste_fichiers[k]}"' #commande pour importer sur le deck
-        import_final = subprocess.run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
-        end = time()
-        temps_import= end - start
-        time_record.append( temps_import)                                           #on mesure le temps de chaque import
-        print(import_final.stdout.lower())
-        if "failed" or "error" in import_final.stdout.lower():
-            print('Vos dossiers ne se sont pas mis dans SkyReal')   
-            return False
-    else:
-        print('vos dossiers sont dans SkyReal')
+    for k in range(0,len(fichiers_CAD)):
+        import_fichier_CAD(time_record, save_id_workspace, path_XRCENTER_local, fichiers_CAD[k])
     return True
+
 
 
 def write_in_excel(fichiers_CAD, time_record):  #fichier .xlsx
     data_in_excel = []
-    filename = input( 'quel est le nom de votre fichier excel?')
+    filename = 'resultats_import_CAD'
     filename += '.xlsx'
     for k in range(0, len(fichiers_CAD)):
         data_in_excel.append([fichiers_CAD[k], time_record[k]])
@@ -177,7 +177,12 @@ def write_in_excel(fichiers_CAD, time_record):  #fichier .xlsx
     return data_in_excel
 
 
+   
+
+
+
 def main():
+    
     
     
     if not verif_dossier_a_traiter():
@@ -207,7 +212,10 @@ def main():
     save_id_workspace=''                    
     time_record= []
     
-    if not creation_workspace_deck(save_id_workspace, path_XRCENTER_local):
+    save_id_workspace= creation_workspace_deck(save_id_workspace, path_XRCENTER_local)
+    
+    if save_id_workspace== None  or save_id_workspace== '':
+        print( 'error in the workspace creation')
         return
     
     if not scan_CAD(liste_fichiers, fichiers_CAD, path_dossier) :
@@ -215,13 +223,9 @@ def main():
     
     print(fichiers_CAD)
     
-    
-    if not import_dossiers_CAD(liste_fichiers, save_id_workspace, path_XRCENTER_local, time_record):
-        print(" l'import ne s est pas effectué")
-        return
+    import_dossiers_CAD(liste_fichiers, save_id_workspace, path_XRCENTER_local, time_record)
 
     data_in_excel=write_in_excel(fichiers_CAD, time_record)
-    print(data_in_excel)
     
     return 
     
