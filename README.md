@@ -13,3 +13,4 @@ What do you need to make the program valid ?
 adresse_xrcenter contains the path of the xrcenter on your computer.
 adresse_cli contains the path of the cli.
 In argument of the program, there is first the path of your repertory that will be scanned, and then the path of the json file.
+# titre   
