@@ -37,7 +37,7 @@ def verif_dossier_a_traiter():   # verifier que notre deuxieme argument est vali
             return False
     return True
     
-def donnees_config_files( path_CLI_local , path_XRCENTER_local ):
+def donnees_config_files(path_CLI_local ):
     if len(sys.argv) !=3:    #le file n'a pas encore été défini  
         print(' il faut le chemin d un fichier json pour configurer les informations propres a votre machine que vous placerez en second argument, contenant \n ADRESSE_XRCENTER= \n ADRESSE_CLI=')
         return None
@@ -50,23 +50,22 @@ def donnees_config_files( path_CLI_local , path_XRCENTER_local ):
             return None
         file = open(config_files, 'r')
         config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
-        path_XRCENTER_local = config_files_dictionnaire["adresse_xrcenter"] 
-        path_CLI_local =  config_files_dictionnaire["adresse_cli"]
-        if (path_XRCENTER_local == None) or (path_CLI_local == None): 
-            print('Les clés ADRESSE_XRCENTER ou ADRESSE_CLI sont manquantes dans le fichier de configuration.')
+        path_CLI_local = config_files_dictionnaire["adresse_cli"] 
+        if (path_CLI_local == None): 
+            print(' ADRESSE_XRCENTER est manquante dans le fichier de configuration.')
             return None
-    return path_XRCENTER_local
+    return path_CLI_local
         
 
-## verifier que le XRcenter est opérationnel  
+## verifier que la CLI est opérationnel  
 
-def verif_XRCENTER(path_XRCENTER_local):
-    commande_XRCENTER_opti1= f'& "{path_XRCENTER_local}" health ping'
+def verif_CLI(path_CLI_local):
+    commande_XRCENTER_opti1= f'& "{path_CLI_local}" health ping'
     XRCENTER_ope = subprocess.run(["Powershell", "-Command", commande_XRCENTER_opti1], capture_output=True, text=True)
     if 'success' in XRCENTER_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
-        print("XRCenter opérationnel")
+        print("CLI opérationnel")
     else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
-        print("Erreur : veuillez lancer votre XRCenter avant de démarrer ce programme")
+        print("Erreur : erreur sur la CLI")
         return False
     return True
 
@@ -88,11 +87,11 @@ def verif_XRCENTER(path_XRCENTER_local):
 
 ## créer un nouveau workspace
 
-def creation_workspace_deck(save_id_workspace, path_XRCENTER_local):
+def creation_workspace_deck(save_id_workspace, path_CLI_local):
     workspace_json={}
     print('Un nouveau workspace sera crée pour vos dossiers dans le Deck SkyReal')
     date = datetime.now().strftime("%Y-%m-%d %H:%M")                    ## le nom du workspace correspond à la date de sa création 
-    creation_workspace= f'& "{path_XRCENTER_local}" workspace create --name workspace_"{date}"'
+    creation_workspace= f'& "{path_CLI_local}" workspace create --name workspace_"{date}"'
     nouveau_workspace= subprocess.run(["Powershell", "-Command", creation_workspace], capture_output=True, text=True)
     workspace_json= json.loads(nouveau_workspace.stdout)
     save_id_workspace= workspace_json["EntityId"]
@@ -137,9 +136,9 @@ def scan_CAD(liste_fichiers, fichiers_CAD, path_dossier):
 
 
 
-def import_fichier_CAD(time_record, save_id_workspace, path_XRCENTER_local, fichier):
+def import_fichier_CAD(time_record, save_id_workspace, path_CLI_local, fichier):
     start = time()
-    commande_fichier_import= f'& "{path_XRCENTER_local}"  cad import "{save_id_workspace}" "{fichier}"' #commande pour importer sur le deck
+    commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{fichier}"' #commande pour importer sur le deck
     import_final = subprocess.run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
     end = time()
     temps_import= end - start
@@ -153,10 +152,10 @@ def import_fichier_CAD(time_record, save_id_workspace, path_XRCENTER_local, fich
 
 # importer le dossier complet
     
-def import_dossiers_CAD(fichiers_CAD, save_id_workspace , path_XRCENTER_local, time_record):
+def import_dossiers_CAD(fichiers_CAD, save_id_workspace , path_CLI_local, time_record):
     print("vos dossiers vont être ajoutés à SkyReal")
     for k in range(0,len(fichiers_CAD)):
-        import_fichier_CAD(time_record, save_id_workspace, path_XRCENTER_local, fichiers_CAD[k])
+        import_fichier_CAD(time_record, save_id_workspace, path_CLI_local, fichiers_CAD[k])
     return True
 
 
@@ -189,19 +188,19 @@ def main():
         return
     
      #path_dossier = "C:\\Users\\AxelBaillet\\Documents\\test2"
-     #path_XRCENTER_local = 'C:\\SkyRealSuite\\1.18\\XRCenterCLI\\Skr.XRCenter.Cmd.exe'
+     #path_CLI_local = 'C:\\SkyRealSuite\\1.18\\XRCenterCLI\\Skr.XRCenter.Cmd.exe'
      # path_CLI_local ='C:\\SkyRealSuite\\1.18\\XRCenterCLI'
      
     path_dossier = sys.argv[1]
-    path_XRCENTER_local = None
+    path_CLI_local = None
     path_CLI_local = None
    
-    path_XRCENTER_local=donnees_config_files(path_CLI_local , path_XRCENTER_local)
-    if  path_XRCENTER_local== None:
+    path_CLI_local=donnees_config_files(path_CLI_local)
+    if  path_CLI_local== None:
         print("error while trying to read config file")
         return
     
-    if not verif_XRCENTER(path_XRCENTER_local):            # on arrete le programme en cas d'erreur 
+    if not verif_CLI(path_CLI_local):            # on arrete le programme en cas d'erreur 
         return 
 
     # if verif_CLI(path_CLI_local) == False:
@@ -212,7 +211,7 @@ def main():
     save_id_workspace=''                    
     time_record= []
     
-    save_id_workspace= creation_workspace_deck(save_id_workspace, path_XRCENTER_local)
+    save_id_workspace= creation_workspace_deck(save_id_workspace, path_CLI_local)
     
     if save_id_workspace== None  or save_id_workspace== '':
         print( 'error in the workspace creation')
@@ -223,7 +222,7 @@ def main():
     
     print(fichiers_CAD)
     
-    import_dossiers_CAD(liste_fichiers, save_id_workspace, path_XRCENTER_local, time_record)
+    import_dossiers_CAD(liste_fichiers, save_id_workspace, path_CLI_local, time_record)
 
     data_in_excel=write_in_excel(fichiers_CAD, time_record)
     
