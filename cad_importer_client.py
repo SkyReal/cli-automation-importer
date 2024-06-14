@@ -14,18 +14,23 @@ import socket
 ##  COTE SERVEUR CLIENT
 
 #use_data(client_socket, time_record, save_id_workspace, path_XRCENTER_local, fichier))
-def use_data(client_socket):
-    file_to_receive_bytes = client_socket.recv(4096)            # le fichier arrive en binaire, normalement sans erreur si il est apres select()
-    file_to_receive= file_to_receive_bytes.decode('utf-8')          # on le retransforme en string
+def use_data(client_socket, condition):
+    print('demarrage du programme d import')
+    try:
+        file_to_receive_bytes = client_socket.recv(4096)            # le fichier arrive en binaire, normalement sans erreur si il est apres select()
+        file_to_receive= file_to_receive_bytes.decode('utf-8')          # on le retransforme en string
     
     # ce que le serveur doit faire
     
-    print('fichier a recevoir test', file_to_receive)
+        print('fichier a recevoir test', file_to_receive)
    
     
     # envoyer les resultats
-    x=b'A'   # pour dire que l'import a reussi     
-    client_socket.send(x)
+        x=b'A'   # pour dire que l'import a reussi     
+        client_socket.send(x)
+    except KeyboardInterrupt:
+        condition = False
+        
     return
     
     
@@ -38,8 +43,13 @@ def main():
     adress_host= ('192.168.0.7', 3000)
     if client_socket.connect(adress_host) ==  None:        # si le serveur est bien connecté   
         print('good')    
-
-    use_data(client_socket)
+    
+    condition = True
+    while condition:
+        try: 
+            use_data(client_socket, condition)
+        except KeyboardInterrupt:
+            client_socket.close()
    
     
     client_socket.close()
