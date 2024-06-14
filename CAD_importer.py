@@ -37,16 +37,16 @@ def verif_dossier_a_traiter():   # verifier que notre deuxieme argument est vali
             return False
     return True
     
-def donnees_config_files(path_CLI_local ):
+def donnees_config_files(path_CLI_local):
     if len(sys.argv) !=3:    #le file n'a pas encore été défini  
         print(' il faut le chemin d un fichier json pour configurer les informations propres a votre machine que vous placerez en second argument, contenant \n ADRESSE_XRCENTER= \n ADRESSE_CLI=')
         return None
     else: 
         config_files = sys.argv[2]
         if config_files.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
-            print('votre fichier est bien pris en compte')     
+            print('votre fichier json est bien pris en compte')     
         else :
-            print("le fichier n est pas pris en compte")
+            print("erreur sur le fichier json en argument")
             return None
         file = open(config_files, 'r')
         config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
@@ -60,12 +60,12 @@ def donnees_config_files(path_CLI_local ):
 ## verifier que la CLI est opérationnel  
 
 def verif_CLI(path_CLI_local):
-    commande_XRCENTER_opti1= f'& "{path_CLI_local}" health ping'
-    XRCENTER_ope = subprocess.run(["Powershell", "-Command", commande_XRCENTER_opti1], capture_output=True, text=True)
-    if 'success' in XRCENTER_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
-        print("CLI opérationnel")
+    commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
+    CLI_ope = subprocess.run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
+    if 'success' in CLI_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
+        print("CLI functional")
     else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
-        print("Erreur : erreur sur la CLI")
+        print("Error : Is your CLI functional?")
         return False
     return True
 
@@ -103,7 +103,7 @@ def creation_workspace_deck(save_id_workspace, path_CLI_local):
 
 ## Chercher les paths des fichiers du dossier passé en argument
 
-liste_fichiers = []
+
 
 def chercher_fichiers(liste_fichiers, path_dossier): 
     for path, directory, files in os.walk(f"{path_dossier}"):
