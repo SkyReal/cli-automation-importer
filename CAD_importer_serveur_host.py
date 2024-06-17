@@ -9,7 +9,8 @@ Created on Tue Jun 11 09:44:04 2024
 
 
 #serveur host 
-
+import openpyxl
+from struct import unpack
 import socket 
 from threading import Thread
 from time import sleep
@@ -39,12 +40,12 @@ def verif_dossier_a_traiter():   # verifier que notre deuxieme argument est vali
             return False 
         if os.path.isdir(sys.argv[1]) == False and  os.path.isfile(sys.argv[1]) == False: 
             return False
-    print('The repertory will be scanned ')
+    print('Your repertory seems correct and will be scanned ')
     return True
 
 def donnees_config_files(path_CLI_local):
     if len(sys.argv) !=3:    #le file n'a pas encore été défini  
-        print(' You need as a second argument a json file with informations related to your computer, containing  \n ADRESSE_XRCENTER=')
+        print(' You need as a second argument the path of a json file with informations related to your computer, containing  \n adresse_cli=')
         return None
     else: 
         config_files = sys.argv[2]
@@ -112,6 +113,26 @@ def scan_CAD(liste_fichiers, fichiers_CAD, path_dossier):
         return False 
     return True
 
+
+def write_in_excel(fichiers_CAD_copy, result_list):  #fichier .xlsx
+    if len(result_list) == 0:
+        print('impossible d ecrire les resultats des imports dans le excel')
+        return 
+    data_in_excel = []
+    filename = 'resultats_import_CAD'
+    filename += '.xlsx'
+    for k in range(0, len(fichiers_CAD_copy)):
+        data_in_excel.append([fichiers_CAD_copy[k], result_list[k]])
+    workbook = openpyxl.Workbook()          # créer un nouveau workbook 
+    sheet = workbook.active                 #prendre la sheet actuelle
+    for row_index, row_data in enumerate(data_in_excel, start=1):        #on se balade dans les lignes à partir de la première
+        for col_index, cell_data in enumerate(row_data, start=1):          #on se balade dans les colonnes à partir de la première
+            sheet.cell(row=row_index, column=col_index, value=cell_data)           
+    
+    workbook.save(filename)   # on sauvegarde les données
+    print(f"les données ont bien été écrites dans votre excel '{filename}'")
+    return 
+
  
 # PARTIE CREATION DU SERVEUR 
 def send_workspace_id(client_socket, save_id_workspace):
@@ -127,7 +148,7 @@ def handle_clients(client_addresses, client_address, new_client_socket, client_s
         client_state[new_client_socket] = 'ready'      #on initialise le premier client comme prêt a travailler
         print(f'the connexion "{client_address[0]}" started' )
     else:
-        print(f'the client "{client_address[0]}" is already connected')
+                                                                                                                                                                                                                                                                                         print(f'the client "{client_address[0]}" is already connected')
     return
     
 def accept_connexions(serversocket, client_addresses, fichiers_CAD, client_state, save_id_workspace) :           # gerera les erreurs plus 
@@ -144,8 +165,8 @@ def accept_connexions(serversocket, client_addresses, fichiers_CAD, client_state
     return 
     
 
-def computer_in_work_v2(fichiers_CAD, result_list, working_list, client_state):
-    clients_list = client_state.keys()
+def computer_in_work(fichiers_CAD, result_list, working_list, client_state):
+    clients_list = client_state.keys()              # liste des elements du dictionnaire
     while True:
         clients_list_readable, client_list_writeable, client_error = select(clients_list, clients_list, clients_list, 10)    # methode non bloquante qui va gerer automatiquement si le boug nest pas prêt
         if client_error != []:
@@ -167,7 +188,7 @@ def computer_in_work_v2(fichiers_CAD, result_list, working_list, client_state):
     return 
 
 
-def reception_v2(working_list, result_list, client_state):
+def reception(working_list, result_list, client_state):
     while True:
         if working_list != []:
             clients_reception_readable, clients_reception_writeable, client_reception_error = select(working_list, working_list, working_list, 5)
@@ -182,16 +203,16 @@ def reception_v2(working_list, result_list, client_state):
                 for sleeping_clients in clients_reception_readable:
                     try:            # on peut deja lire leurs contenus avec readable, il faudra juste gerer les erreurs de wifi
                         result_wait_bytes = sleeping_clients.recv(1024)     # on regarde si ils renvoient quelque chose
-                        result_wait = result_wait_bytes.decode('utf-8')
-                        if result_wait == 'A':      # l'import a reussi 
-                            result_wait_int = 1 
-                        else:                   # l'import a echoué
-                            result_wait_int = 0
-                        result_list.append(result_wait_int)
+                        result_wait = result_wait_bytes.decode()
+                        result_wait_float = float(result_wait)
+                        print('result_wait', result_wait)
+                        result_list.append(result_wait_float)
                         client_state[sleeping_clients] = 'ready'
                         working_list.remove(sleeping_clients)
+                        print('the result of the import was succesfully gotten')
                     except socket.error:
                         print('Error while getting a client response')
+
     return
 
 
@@ -201,10 +222,10 @@ def threading_in_progress(serversocket, client_addresses, fichiers_CAD, result_l
     accept_thread = Thread(target = accept_connexions, args=(serversocket, client_addresses, fichiers_CAD, client_state, save_id_workspace), daemon = True)          #on verifie en permanence si il y a une adresse dispo
     accept_thread.start()
     
-    send_thread = Thread(target = computer_in_work_v2, args= (fichiers_CAD, result_list, working_list, client_state), daemon = True )
+    send_thread = Thread(target = computer_in_work, args= (fichiers_CAD, result_list, working_list, client_state), daemon = True )
     send_thread.start()    
     
-    reception_thread = Thread(target = reception_v2 , args= (working_list, result_list, client_state), daemon = True )# QUELS ARGUMENTS ?
+    reception_thread = Thread(target = reception , args= (working_list, result_list, client_state), daemon = True )# QUELS ARGUMENTS ?
     reception_thread.start()
     
     return accept_thread,send_thread, reception_thread
@@ -225,7 +246,12 @@ def closing_clients(client_state):
     # while kill_client_writeable != []:
     #     sleep(1)
     return
-        
+     
+def finish_conditon(client_state):                  # pour qu ele dernier import puisse se faire 
+    for key, value in client_state.items():
+        if value != "ready":
+            return False
+    return True 
 
 def main():  
     
@@ -244,8 +270,7 @@ def main():
     # initialisation des variables necessaires au serveur 
     
     fichiers_CAD = []
-    fichiers_CAD_copy = list(fichiers_CAD) # copie pour la condition
-    result_list=[]
+    result_list=[]              # contiendra les temps d'imports
     client_addresses=  set()  #ensemble non ordonnées d'elements, on va s'en servir pour être sur qu'un serveur client ne s'enregistre pas 2 fois 
     working_list = []
     client_state = {}
@@ -274,6 +299,7 @@ def main():
     if not scan_CAD(liste_fichiers, fichiers_CAD, path_dossier) :
         return
     
+    fichiers_CAD_copy = list(fichiers_CAD) # copie pour la condition
     
     # creation du serveur
     
@@ -306,11 +332,15 @@ def main():
     finally:
         pass
     
-    while len(result_list) < len( fichiers_CAD_copy ):
+   
+    
+    while len(result_list) < len( fichiers_CAD_copy ) or finish_conditon(client_state) == False:
         sleep(2)
         
     
     closing_thread(accept_thread, send_thread, reception_thread)
+    
+    write_in_excel(fichiers_CAD_copy, result_list)
         
     closing_clients(client_state)
     
