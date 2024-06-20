@@ -132,6 +132,8 @@ def scan_CAD(liste_fichiers, fichiers_CAD, path_dossier):
     return True
 
 
+    
+
 # Importer les fichiers scannés dans le CLI     
 
 
