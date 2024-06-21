@@ -5,13 +5,15 @@ Created on Tue Jun 11 15:25:03 2024
 @author: AxelBaillet
 """
 
+
+from pathlib import Path
 import argparse
 import socket 
 from time import time 
 from time import sleep
 from subprocess import run 
 from json import load
-
+from ipaddress import ip_address, AddressValueError
 
 IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
@@ -20,7 +22,11 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 # pour avoir le path de la CLI
 
-def donnees_config_files(path_CLI_local, JSON_file ):
+
+
+
+
+def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
         print('Your json file has been properly exploited')     
     else :
@@ -34,6 +40,18 @@ def donnees_config_files(path_CLI_local, JSON_file ):
         return None
     return path_CLI_local
         
+
+
+def verif_CLI(path_CLI_local):
+    commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
+    CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
+    if 'success' in CLI_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
+        print("CLI functional")
+    else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
+        print("Error : Is your CLI functional?")
+        return False
+    return True
+
 
 
 def import_fichier_CAD(time_record, save_id_workspace, path_CLI_local, fichier):
@@ -53,8 +71,28 @@ def import_fichier_CAD(time_record, save_id_workspace, path_CLI_local, fichier):
     
 
 ##  COTE SERVEUR CLIENT
-        
+
+def verif_IP_adress(ip_address_host):               # verifier la validite de l'adresse ip du host
+    try:
+       ip_address(ip_address_host)
+       print('Warning : make sure to verify that the IP adress in the json file is the one of your host computer')
+       return True
+    except AddressValueError:
+        print('your ipadress is not valid')
+        return False
     
+    
+    
+def get_IP_adress(JSON_file):
+        file = open(JSON_file, 'r')
+        config_files_dictionnaire = load(file)     
+        IP_adress = config_files_dictionnaire["adresse_ip"] 
+        if IP_adress == '':
+            print('Did you put the right IP_adress in the config file ?')
+        return IP_adress
+        
+        
+        
 def get_ID_workspace(client_socket, id_workspace):
     try: 
         id_workspace_bytes = client_socket.recv(4096)            # le fichier arrive en binaire, normalement sans erreur si il est apres select()
@@ -79,7 +117,12 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
             return False
    
     # ce que le serveur doit faire
-
+        check_existence = Path(file_to_receive)
+        if not check_existence.exists():                           # On considere que si un seul fichiers n'est pas present sur le pc, le repertoire n existe pas du tout et on ferme ce client
+            print('the CAD file can not be found on this computer. You must be able to access it. This client will close') 
+            
+            return False
+        
         time_record = import_fichier_CAD(time_record, id_workspace, path_CLI_local, file_to_receive)
         
     # envoyer les resultats
@@ -100,9 +143,9 @@ def verif_connexion_to_host(client_socket, adress_host):
             print('the client was successfuly connected')
             connected = True 
         except socket.error:
-            sleep(5)
-            print('waiting for a host server, time before unconnecting =', IDLE_TIME_OUT - time_before_unconnecting)
-            time_before_unconnecting += 5 
+           sleep(5)
+           print('waiting for a host server, remaining time before disconnexion =', IDLE_TIME_OUT - time_before_unconnecting)
+           time_before_unconnecting += 5
     if not connected:
         print('Failed to connect to the server after 5 minutes.')
         client_socket.close()  # Fermer le socket si la connexion échoue
@@ -121,21 +164,30 @@ def main():
     
     
     # initialiser les variables
+    ip_adress_host = ''
     id_workspace = ''
     time_record= 0.0
     path_CLI_local = None
     
-    path_CLI_local = donnees_config_files(path_CLI_local, JSON_file )      # on prend le path CLI
+    path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )      # on prend le path CLI
     
-    if path_CLI_local == None:
+    if verif_CLI(path_CLI_local) == False:
         return
     
     
     
+    # obtenir l'adresse ip 
+    
+    ip_adress_host=  get_IP_adress(JSON_file)
+    
+    # verifier la validité de l'adresse ip
+    
+    verif_IP_adress( ip_adress_host)
+    
     # se connecter au serveur 
     
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    adress_host= ('192.168.0.7', 3000)      # l'adresse du serveur host
+    adress_host= (ip_adress_host, 3000)      # l'adresse du serveur host
     
     
     if verif_connexion_to_host(client_socket, adress_host) == False:          # verifier si on est bien connecte sinon attendre
@@ -151,6 +203,7 @@ def main():
         return 
     
     # effectuer les imports 
+    
     print('starting the import program')
     while True:
         try: 

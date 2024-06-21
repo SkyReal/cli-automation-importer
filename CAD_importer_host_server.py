@@ -31,7 +31,19 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 # variables nécessaires pour la partie scan et infos
 
-def verif_dossier_a_traiter(CAD_repertory):   # verifier que notre deuxieme argument est valide 
+
+def verif_excel_filename(excel_filename):
+    excel_extensions = ['.xlsx', '.xlsm', '.xltx','.xltm']
+    for extensions in  excel_extensions:
+        if excel_filename.lower().endswith(extensions):
+            return True 
+    return False
+
+
+
+
+
+def verif_repertory(CAD_repertory):   # verifier que notre deuxieme argument est valide 
     if os.path.exists(CAD_repertory) == False:
         print('The path of your repertory does not exists')
         return False 
@@ -41,7 +53,7 @@ def verif_dossier_a_traiter(CAD_repertory):   # verifier que notre deuxieme argu
     return True
 
 
-def donnees_config_files(path_CLI_local, JSON_file ):
+def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
         print('Your json file has been properly exploited')     
     else :
@@ -76,13 +88,13 @@ def creation_workspace_deck(save_id_workspace, path_CLI_local):
     workspace_json= json.loads(nouveau_workspace.stdout)
     save_id_workspace= workspace_json["EntityId"]
     if nouveau_workspace.stderr != '':   #on vérifie qu'il n'y a pas d'erreurs
-        print('il y a un problème avec le workspace')
+        print('Problem with the workspace')
         return None
     return save_id_workspace
 
 
 
-def chercher_fichiers(liste_fichiers, CAD_repertory):   # fonction intermediaire
+def find_files(liste_fichiers, CAD_repertory):   # fonction intermediaire
     for path, directory, files in os.walk(f"{CAD_repertory}"):
        for file_name in files:
             file_path = os.path.join(path, file_name)                   # Obtenir le chemin absolu du fichier
@@ -91,7 +103,7 @@ def chercher_fichiers(liste_fichiers, CAD_repertory):   # fonction intermediaire
 
 
 def scan_CAD(liste_fichiers, fichiers_CAD, CAD_repertory ):
-    chercher_fichiers(liste_fichiers, CAD_repertory)
+    find_files(liste_fichiers, CAD_repertory)
     if liste_fichiers == [] :                                               # Le dossier est vide 
         print('The repertory is empty')
         return False
@@ -107,14 +119,12 @@ def scan_CAD(liste_fichiers, fichiers_CAD, CAD_repertory ):
     return True
 
 
-def results_in_excel( result_dictionary, excel_filename):
-    print('result_dictionary', result_dictionary)
-    if len(result_dictionary) == 0:
+def results_in_excel( result_dictionary, excel_filename, client_state):
+    if len(client_state) == 0:
             print('No results can be send in the excel file')
             return 
     else:
         try:
-            print('excel_filename', excel_filename)
             workbook = openpyxl.load_workbook(excel_filename)
         except FileNotFoundError:
             workbook = openpyxl.Workbook()
@@ -234,9 +244,13 @@ def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, 
                             number_of_received_import[0] +=1
                             working_list.remove(sleeping_clients)            # on l'enleve completement de la liste
                             sleeping_clients.close()
-                        except Exception as exc:
-                            print('an error has occured : ', exc)
+                        except Exception:
                             client_state.pop(sleeping_clients)
+                            for key in result_dictionary.keys():                                                               #si il y a eu un probleme de connexion          
+                                if result_dictionary[key] == sleeping_clients:
+                                    result_dictionary[key] = -2
+                            number_of_received_import[0] +=1
+                            working_list.remove(sleeping_clients)            # on l'enleve completement de la liste
                             sleeping_clients.close()
                             
     return
@@ -287,11 +301,16 @@ def main():
     excel_filename = args.name if args.name else 'results_import_CAD.xlsx'              # nom du fichier excel
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
     JSON_file = args.json 
+    
+    
     # vérification sur les arguments de la fonction
     
-    if not verif_dossier_a_traiter(CAD_repertory):
+    if not verif_repertory(CAD_repertory):
         return
     
+    if not verif_excel_filename(excel_filename):
+        print('error : the extension of your excel filename must belong the the following ones : .xlsx, .xlsm, .xltx,.xltm' )
+        return 
     # variables nécessaires pour la partie scan et infos
     
     liste_fichiers=[]
@@ -316,7 +335,7 @@ def main():
     
     # infos et vérifications sur la CLI 
     
-    path_CLI_local=donnees_config_files(path_CLI_local, JSON_file)
+    path_CLI_local= get_config_files_datas(path_CLI_local, JSON_file)
     if  path_CLI_local== None:
         print("error while trying to read config file")
         return
@@ -367,15 +386,15 @@ def main():
             timer = 0  
             sleep(2)
         else: 
-            print(' there are no clients, time before deconnecting',  IDLE_TIME_OUT - timer)
+            print(' there are no clients, remaining time before disconnexion',  IDLE_TIME_OUT - timer)
             sleep(5)
             timer += 5
     
     closing_thread(accept_thread, send_thread, reception_thread)
-        
-    closing_clients(client_state)
     
     results_in_excel( result_dictionary, excel_filename )
+    
+    closing_clients(client_state)
     
     serversocket.close()
     return 
