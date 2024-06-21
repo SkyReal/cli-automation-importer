@@ -20,12 +20,6 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 # COTE IMPORT DANS LE DECK 
 
-# pour avoir le path de la CLI
-
-
-
-
-
 def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
         print('Your json file has been properly exploited')     
@@ -54,21 +48,21 @@ def verif_CLI(path_CLI_local):
 
 
 
-def import_fichier_CAD(time_record, save_id_workspace, path_CLI_local, fichier):
-    print(f'your file "{fichier}" is send in SkyReal')
-    commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{fichier}"' #commande pour importer sur le deck
+def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
+    print(f'your file "{file}" is send in SkyReal')
+    commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}"' #commande pour importer sur le deck
     start = time()
     import_final = run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
     print('import_final', import_final)
     end = time()
     time_record= end - start                                                                           # on mesure le temps de chaque import
     if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower():
-            print(f' \n the file "{fichier}" cant be put in SkyReal \n ')   
+            print(f' \n the file "{file}" cant be put in SkyReal \n ')   
             time_record= -1             # l'import a echoue
     else:
-        print(f'your file "{fichier}" is in SkyReal')
+        print(f'your file "{file}" is in SkyReal')
     return time_record
-    
+
 
 ##  COTE SERVEUR CLIENT
 
@@ -123,7 +117,7 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
             
             return False
         
-        time_record = import_fichier_CAD(time_record, id_workspace, path_CLI_local, file_to_receive)
+        time_record = import_CAD_file(time_record, id_workspace, path_CLI_local, file_to_receive)
         
     # envoyer les resultats
         time_record_byte = str(time_record).encode()          # on traduit le float en chaine de caractere que l'on met en bytes

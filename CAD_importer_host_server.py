@@ -392,7 +392,7 @@ def main():
     
     closing_thread(accept_thread, send_thread, reception_thread)
     
-    results_in_excel( result_dictionary, excel_filename )
+    results_in_excel( result_dictionary, excel_filename, client_state )
     
     closing_clients(client_state)
     
