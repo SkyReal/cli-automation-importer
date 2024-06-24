@@ -18,6 +18,10 @@ from ipaddress import ip_address, AddressValueError
 IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 
+
+
+
+
 # COTE IMPORT DANS LE DECK 
 
 def get_config_files_datas(path_CLI_local, JSON_file ):
@@ -69,7 +73,7 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
 def verif_IP_adress(ip_address_host):               # verifier la validite de l'adresse ip du host
     try:
        ip_address(ip_address_host)
-       print('Warning : make sure to verify that the IP adress in the json file is the one of your host computer')
+       print('Warning : make sure to verify that the IP adress in the json file is the one of your host computer, or the program wont work')
        return True
     except AddressValueError:
         print('your ipadress is not valid')
@@ -81,7 +85,7 @@ def get_IP_adress(JSON_file):
         file = open(JSON_file, 'r')
         config_files_dictionnaire = load(file)     
         IP_adress = config_files_dictionnaire["adresse_ip"] 
-        if IP_adress == '':
+        if IP_adress == '' or IP_adress == None:
             print('Did you put the right IP_adress in the config file ?')
         return IP_adress
         
@@ -145,6 +149,9 @@ def verif_connexion_to_host(client_socket, adress_host):
         client_socket.close()  # Fermer le socket si la connexion échoue
         return False
     return True
+
+
+
     
 def main():
     
@@ -176,9 +183,11 @@ def main():
     
     # verifier la validité de l'adresse ip
     
-    verif_IP_adress( ip_adress_host)
+    if not verif_IP_adress( ip_adress_host):
+        return 
     
     # se connecter au serveur 
+       
     
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     adress_host= (ip_adress_host, 3000)      # l'adresse du serveur host

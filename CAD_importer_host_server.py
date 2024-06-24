@@ -29,9 +29,6 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 #   PARTIE SCAN D'UN DOSSIER MIS EN ARGUMENT
 
-# variables nécessaires pour la partie scan et infos
-
-
 def verif_excel_filename(excel_filename):
     excel_extensions = ['.xlsx', '.xlsm', '.xltx','.xltm']
     for extensions in  excel_extensions:
@@ -94,24 +91,24 @@ def creation_workspace_deck(save_id_workspace, path_CLI_local):
 
 
 
-def find_files(liste_fichiers, CAD_repertory):   # fonction intermediaire
+def find_files(file_list, CAD_repertory):   # fonction intermediaire
     for path, directory, files in os.walk(f"{CAD_repertory}"):
        for file_name in files:
             file_path = os.path.join(path, file_name)                   # Obtenir le chemin absolu du fichier
-            liste_fichiers.append(file_path)                            # Ajouter le chemin absolu à la liste
+            file_list.append(file_path)                            # Ajouter le chemin absolu à la liste
     return 
 
 
-def scan_CAD(liste_fichiers, fichiers_CAD, CAD_repertory ):
-    find_files(liste_fichiers, CAD_repertory)
-    if liste_fichiers == [] :                                               # Le dossier est vide 
+def scan_CAD(file_list, fichiers_CAD, CAD_repertory ):
+    find_files(file_list, CAD_repertory)
+    if file_list == [] :                                               # Le dossier est vide 
         print('The repertory is empty')
         return False
     else: 
-        for k in range(0,len(liste_fichiers)):
+        for k in range(0,len(file_list)):
             for i in range(0, len(extensions)):                             #on s'arrête s'il n'existe pas de fichers CAD
-                if liste_fichiers[k].lower().endswith(extensions[i].lower()) == True :      #c'est un dossier CAD, on regarde son extension en minuscule pour le rendre insensible a la casse
-                    fichiers_CAD.append(liste_fichiers[k])
+                if file_list[k].lower().endswith(extensions[i].lower()) == True :      #c'est un dossier CAD, on regarde son extension en minuscule pour le rendre insensible a la casse
+                    fichiers_CAD.append(file_list[k])
                     break                                                   #on n'a pas besoin de regarder le reste des extensions
     if (fichiers_CAD == []):                                                # il n'y avait pas de fichiers à traiter
         print('There was no CAD files in this repertory')
@@ -131,6 +128,7 @@ def results_in_excel( result_dictionary, excel_filename, client_state):
             default_sheet = workbook.active                                 # si le classeur est nouveau, on enleve la feuille par defaut
             workbook.remove(default_sheet)
         result_list = list(result_dictionary.items())
+        print('result_list')
         sheet_name = f'Sheet_{len(workbook.sheetnames)}'
         sheet = workbook.create_sheet(title=sheet_name)
         for row_index, (key, value) in enumerate(result_list, start=1):
@@ -284,6 +282,32 @@ def closing_clients(client_state):
         kill_clients.sendall(closing_message_byte)      
     return
      
+# WAKE ON LAN
+
+# on va enregistrer dans un fichier json les informations nécessaires, à savoir les adresses ip 
+
+def verify_json_with_ip(json_with_ip, client_addresses):
+    client_adresses_list = list(client_addresses)
+    if len(client_adresses_list)  == 0:
+        print('no ip adresses were provided for next updates')
+        return 
+    if os.path.exists(json_with_ip):                                          # si le fichier existe
+        ip_file = open(json_with_ip, 'r+',encoding='utf-8')                   # on ouvre le fichier et on va ecrire a la fin 
+        try:
+            data = json.load(ip_file)                                         # on charge les données, dans notre cas ca sera sous forme de liste
+        except json.JSONDecodeError:
+            data = []
+        for ip_addresses in client_adresses_list:
+            if ip_addresses not in data:
+                data.append(ip_addresses)
+        ip_file.seek(0)                                                                       # se placer au debut du fichier                       
+        json.dump(data, ip_file, ensure_ascii=False, indent=4)                                # ecrire dans le dossier les donnees
+        ip_file.truncate()                                                                    # tronquer ce qu'il y a apres le curseur
+    else:
+        ip_file = open(json_with_ip, 'w',encoding='utf-8')
+        json.dump(client_adresses_list, ip_file, ensure_ascii=False, indent=4)            
+    print('for futur updates, your clients were saved in the json you specified')
+    return    
 
 def main():  
     
@@ -291,16 +315,15 @@ def main():
     # informations sur les arguments de la fonction
     
     parser = argparse.ArgumentParser(description = 'Process the three arguments')                     # va gerer les differents arguments
-    parser.add_argument('--name', type = str, help = 'name of your excel file. If not specified, the results will be put in a file name "results_import_CAD"')  #le nom du fichier excel
+    parser.add_argument('--excel_filename', type = str, help = 'name of your excel file. If not specified, the results will be put in a file name "results_import_CAD"')  #le nom du fichier excel
     parser.add_argument('--rep', type = str, help = 'name of your repertory containing the CAD files.', required= True)
-    parser.add_argument('--json', type = str, help = 'name of your json containing the informations required to make the program work.', required= True)
+    parser.add_argument('--config_file', type = str, help = 'name of your json containing the informations required to make the program work.', required= True)
 
     args = parser.parse_args()  # parcourir les differents arguments
     
-    
-    excel_filename = args.name if args.name else 'results_import_CAD.xlsx'              # nom du fichier excel
+    excel_filename = args.excel_filename if args.excel_filename else 'results_import_CAD.xlsx'              # nom du fichier excel
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
-    JSON_file = args.json 
+    JSON_file = args.config_file 
     
     
     # vérification sur les arguments de la fonction
@@ -313,7 +336,7 @@ def main():
         return 
     # variables nécessaires pour la partie scan et infos
     
-    liste_fichiers=[]
+    file_list=[]
     path_CLI_local = None
     save_id_workspace=''     
     
@@ -354,7 +377,7 @@ def main():
     
     # scan du dossier 
     
-    if not scan_CAD(liste_fichiers, fichiers_CAD, CAD_repertory) :
+    if not scan_CAD(file_list, fichiers_CAD, CAD_repertory) :
         return
     
     fichiers_CAD_copy = list(fichiers_CAD) # copie pour la condition
@@ -366,13 +389,6 @@ def main():
     serversocket.bind(( socket.gethostbyname(socket.gethostname()), 3000) )        
     serversocket.listen()
     print('host server is starting \nwaiting for a first client')
-   
-    # il faut au moins un client pour pouvoir demarrer le script 
-     
-    # if manage_first_client(serversocket, client_state, save_id_workspace) == False:
-    #     return 
-        
-    # execution du serveur
     
     try:
         accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, client_addresses, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import)  
@@ -392,11 +408,15 @@ def main():
     
     closing_thread(accept_thread, send_thread, reception_thread)
     
+    json_with_ip = 'ip.json'
     results_in_excel( result_dictionary, excel_filename, client_state )
+    verify_json_with_ip(json_with_ip, client_addresses)
     
-    closing_clients(client_state)
+    closing_clients(client_state)   
     
     serversocket.close()
+    
+    
     return 
    
     
