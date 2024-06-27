@@ -35,7 +35,7 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 def computer_wake_up(ip_address):           # marche seulement si le pc est eteint 
     send_magic_packet('FF:FF:FF:FF:FF:FF', ip_address=ip_address)   # il faut que les adresses ip soient fixes
-    sleep(10)
+    sleep(50)
     return
 
 
@@ -143,7 +143,6 @@ def results_in_excel( result_dictionary, excel_filename, client_state):
             default_sheet = workbook.active                                 # si le classeur est nouveau, on enleve la feuille par defaut
             workbook.remove(default_sheet)
         result_list = list(result_dictionary.items())
-        print('result_list')
         sheet_name = f'Sheet_{len(workbook.sheetnames)}'
         sheet = workbook.create_sheet(title=sheet_name)
         for row_index, (key, value) in enumerate(result_list, start=1):
@@ -165,7 +164,7 @@ def send_workspace_id(client_socket, save_id_workspace):
 def accept_connexions(serversocket, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy) :        
     while len(fichiers_CAD) > 0 and new_clients_counter[0] < len(fichiers_CAD_copy):           # condition d'arret du thread
         try:
-            (new_client_socket, client_address) = serversocket.accept()   #pour accepter la connexion de clients    
+            (new_client_socket, client_address) = serversocket.accept()   #pour accepter la connexion de clients  
             new_clients_counter[0] += 1
             send_workspace_id(new_client_socket, save_id_workspace)
             client_state[new_client_socket] = 'ready'      #on initialise le premier client comme prêt a travailler
@@ -314,6 +313,8 @@ def main():
     if not verif_excel_filename(excel_filename):
         print('error : the extension of your excel filename must belong the the following ones : .xlsx, .xlsm, .xltx,.xltm' )
         return 
+    
+    ip_list = read_json(json_with_ip)
     # variables nécessaires pour la partie scan et infos
     
     file_list=[]
@@ -364,19 +365,20 @@ def main():
     
     # creation du serveur
     
-    computer_wake_up(json_with_ip)
     
     serversocket= socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serversocket.bind(( socket.gethostbyname(socket.gethostname()), 3000) )        
     serversocket.listen()
     print('host server is starting \nwaiting for a first client')
     
+    for clients in ip_list:
+        computer_wake_up(clients)
     try:
         accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter)  
     except KeyboardInterrupt:
         for clients in client_state.keys():
             clients.close()
-            serversocket.close()
+        serversocket.close()
     
     while timer < IDLE_TIME_OUT and number_of_received_import[0] < len( fichiers_CAD_copy ):
         if len(client_state) != 0:
@@ -388,10 +390,10 @@ def main():
             timer += 5
     
     closing_thread(accept_thread, send_thread, reception_thread)
+        
+    closing_clients(client_state)   
     
     results_in_excel( result_dictionary, excel_filename, client_state )
-    
-    closing_clients(client_state)   
     
     serversocket.close()
     

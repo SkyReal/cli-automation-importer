@@ -5,9 +5,8 @@ Created on Tue Jun 11 15:25:03 2024
 @author: AxelBaillet
 """
 
-
+import os
 from pathlib import Path
-import argparse
 import socket 
 from time import time 
 from time import sleep
@@ -24,9 +23,10 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 # COTE IMPORT DANS LE DECK 
 
+
 def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
-        print('Your json file has been properly exploited')     
+        pass     
     else :
         print("This is not a json file")
         return None
@@ -41,12 +41,16 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
 
 
 def verif_CLI(path_CLI_local):
+    if not os.path.exists(path_CLI_local):
+        print('You need to write the correct local path of your cli in the config file')
+        return False
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
     CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
+    
     if 'success' in CLI_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
         print("CLI functional")
-    else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
-        print("Error : Is your CLI functional?")
+    else:                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
+        print("Error : verify if your XRCenter is activated ")
         return False
     return True
 
@@ -57,7 +61,6 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
     commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}"' #commande pour importer sur le deck
     start = time()
     import_final = run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
-    print('import_final', import_final)
     end = time()
     time_record= end - start                                                                           # on mesure le temps de chaque import
     if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower():
@@ -72,7 +75,7 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
 
 def verif_IP_adress(ip_address_host):               # verifier la validite de l'adresse ip du host
     try:
-       ip_address(ip_address_host)
+       ip_address(ip_address_host)                  # fonction du module ip address
        print('Warning : make sure to verify that the IP adress in the json file is the one of your host computer, or the program wont work')
        return True
     except AddressValueError:
@@ -153,28 +156,18 @@ def verif_connexion_to_host(client_socket, adress_host):
 
 
     
-def main():
-    
-    
-    # initialiser les arguments 
-    
-    parser = argparse.ArgumentParser(description = 'Process the three arguments')                     # va gerer les differents arguments
-    parser.add_argument('--json', type = str, help = 'name of your json containing the informations required to make the program work.', required= True)
-    args = parser.parse_args()  # parcourir les differents arguments
-    JSON_file = args.json 
-    
+def main():   
     
     # initialiser les variables
+    
     ip_adress_host = ''
     id_workspace = ''
     time_record= 0.0
     path_CLI_local = None
     
+    
+    JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
     path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )      # on prend le path CLI
-    
-    if verif_CLI(path_CLI_local) == False:
-        return
-    
     
     
     # obtenir l'adresse ip 
@@ -185,6 +178,12 @@ def main():
     
     if not verif_IP_adress( ip_adress_host):
         return 
+    
+    # verif la cli 
+    
+        
+    if verif_CLI(path_CLI_local) == False:   # apres avoir verifié l'adresse ip, car elle en est dependante
+        return
     
     # se connecter au serveur 
        

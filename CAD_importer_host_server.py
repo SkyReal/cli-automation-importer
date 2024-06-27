@@ -128,7 +128,6 @@ def results_in_excel( result_dictionary, excel_filename, client_state):
             default_sheet = workbook.active                                 # si le classeur est nouveau, on enleve la feuille par defaut
             workbook.remove(default_sheet)
         result_list = list(result_dictionary.items())
-        print('result_list')
         sheet_name = f'Sheet_{len(workbook.sheetnames)}'
         sheet = workbook.create_sheet(title=sheet_name)
         for row_index, (key, value) in enumerate(result_list, start=1):

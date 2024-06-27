@@ -5,10 +5,8 @@ Created on Tue Jun 25 10:01:57 2024
 @author: AxelBaillet
 """
 
-
-
+import os 
 from pathlib import Path
-import argparse
 import socket 
 from time import time 
 from time import sleep
@@ -16,30 +14,44 @@ from subprocess import run
 from json import load
 from ipaddress import ip_address, AddressValueError
 import logging 
-from os import system
-
 IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
+
 
 
 
 # on va repertorier les erreurs dans un journal
 
+log_directory = r'C:\ProgramData\cli_automation_importer'
+log_file_path = os.path.join(log_directory, 'report.log')
+
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
 logging.basicConfig(
     level=logging.INFO,                                     # on affichera les messages de gravite minimale 'info'
     format='%(asctime)s - %(levelname)s - %(message)s',     # le format des messages affiches 
-    handlers=[logging.FileHandler("report.log", mode = 'w')]   # le path du fichier ou seront ecrites les erreurs de debogage
+    handlers=[logging.FileHandler(log_file_path, mode = 'w')]   # le path du fichier ou seront ecrites les erreurs de debogage
 )
 
 logger = logging.getLogger('logger')        #initialisation du logger
 
 
-# COTE IMPORT DANS LE DECK 
+# COTE IMPORT DANS LE DECK  
+
+def find_config_files_path():
+   #le config file est toujours au meme endroit 
+   if not os.path.exists("C:\ProgramData\cli_automation_importer"):         # destiné a etre supprime avec l'installeuir
+       logger.info('do you have your config file?')
+       return ''
+   else:
+       config_file_path = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
+   return config_file_path
 
 def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
-        logger.info('Your json file has been properly exploited')     
+        pass 
     else :
-        logger.info("This is not a json file")
+        logger.info("The config file is not a json file")
         return None
     file = open(JSON_file, 'r')
     config_files_dictionnaire = load(file)                                     #on convertit le json en dictionnaire 
@@ -52,12 +64,15 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
 
 
 def verif_CLI(path_CLI_local):
+    if not os.path.exists(path_CLI_local):
+        logger.info('You need to write the correct local path of your cli in the config file')
+        return False
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
     CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
     if 'success' in CLI_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
         logger.info("CLI functional")
     else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
-        print("Error : Is your CLI functional?")
+        logger.info("Error : Is your XRCenter activated?")
         return False
     return True
 
@@ -97,6 +112,7 @@ def get_IP_adress(JSON_file):
         IP_adress = config_files_dictionnaire["adresse_ip"] 
         if IP_adress == '' or IP_adress == None:
             logger.warning('Did you put the right IP_adress in the config file ?')
+            return False
         return IP_adress
         
         
@@ -152,7 +168,7 @@ def verif_connexion_to_host(client_socket, adress_host):
             connected = True 
         except socket.error:
            sleep(5)
-           logger.info('waiting for a host server, remaining time before disconnexion =', IDLE_TIME_OUT - time_before_unconnecting)
+           logger.info(f'waiting for a host server, remaining time before disconnexion : "{IDLE_TIME_OUT - time_before_unconnecting}"')
            time_before_unconnecting += 5
     if not connected:
         logger.info('Failed to connect to the server after 5 minutes.')
@@ -165,27 +181,23 @@ def verif_connexion_to_host(client_socket, adress_host):
     
 def main():
     
-    
-    # initialiser les arguments 
-    
-    parser = argparse.ArgumentParser(description = 'Process the three arguments')                     # va gerer les differents arguments
-    parser.add_argument('--json', type = str, help = 'name of your json containing the informations required to make the program work.', required= True)
-    args = parser.parse_args()  # parcourir les differents arguments
-    JSON_file = args.json 
-    
-    
     # initialiser les variables
+    
     ip_adress_host = ''
     id_workspace = ''
     time_record= 0.0
     path_CLI_local = None
     
-    path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )      # on prend le path CLI
     
-    if verif_CLI(path_CLI_local) == False:
+    # verifications des variables 
+    
+    JSON_file = find_config_files_path()  # le path du json 
+    
+    if JSON_file == '':
+        logger.info('Is your config file next to your client program?')
         return
     
-    
+    path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )      # on prend le path CLI
     
     # obtenir l'adresse ip 
     
@@ -195,6 +207,12 @@ def main():
     
     if not verif_IP_adress( ip_adress_host):
         return 
+    
+    # verifier la validité de la CLI et du XRCenter
+    
+    if verif_CLI(path_CLI_local) == False:
+        return
+    
     
     # se connecter au serveur 
        
@@ -235,7 +253,7 @@ def main():
     
     client_socket.close()
     
-    system( "shutdown /s /t 5")
+ #    system( "shutdown /s /t 5")
     return
 
 main()
