@@ -7,6 +7,7 @@ Created on Tue Jun 25 10:39:50 2024
 
 #serveur host 
 
+from struct import pack
 import argparse
 import openpyxl
 import socket 
@@ -157,7 +158,8 @@ def results_in_excel( result_dictionary, excel_filename, client_state):
 
 def send_workspace_id(client_socket, save_id_workspace):
     save_id_workspace_bytes=  save_id_workspace.encode('utf-8')
-    client_socket.send(save_id_workspace_bytes)
+    message_length = pack('!I', len(save_id_workspace_bytes))
+    client_socket.sendall(message_length + save_id_workspace_bytes)
     return 
     
 
@@ -303,7 +305,7 @@ def main():
     excel_filename = args.excel_filename if args.excel_filename else 'results_import_CAD.xlsx'              # nom du fichier excel
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
     JSON_file = args.config_file 
-    json_with_ip = args.json_ip if args.json_ip else 'ip.json'
+    # json_with_ip = args.json_ip if args.json_ip else 'ip.json'
     
     # vérification sur les arguments de la fonction
     
@@ -314,7 +316,8 @@ def main():
         print('error : the extension of your excel filename must belong the the following ones : .xlsx, .xlsm, .xltx,.xltm' )
         return 
     
-    ip_list = read_json(json_with_ip)
+    # ip_list = read_json(json_with_ip)
+    
     # variables nécessaires pour la partie scan et infos
     
     file_list=[]
@@ -371,8 +374,8 @@ def main():
     serversocket.listen()
     print('host server is starting \nwaiting for a first client')
     
-    for clients in ip_list:
-        computer_wake_up(clients)
+    # for clients in ip_list:
+    #     computer_wake_up(clients)
     try:
         accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter)  
     except KeyboardInterrupt:
