@@ -24,6 +24,12 @@ from sys import argv
 from struct import unpack
 IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
+# import pour le server samba
+
+import uuid
+from smbprotocol.connection import Connection
+from smbprotocol.session import Session
+from smbprotocol.tree import TreeConnect
 
 
 # on va repertorier les erreurs dans un journal
@@ -35,12 +41,15 @@ if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
 logging.basicConfig(
-    level=logging.INFO,                                     # on affichera les messages de gravite minimale 'info'
+    level=logging.DEBUG,                                     # on affichera les messages de gravite minimale 'info'
     format='%(asctime)s - %(levelname)s - %(message)s',     # le format des messages affiches 
-    handlers=[logging.FileHandler(log_file_path, mode = 'w')]   # le path du fichier ou seront ecrites les erreurs de debogage
+    handlers=[logging.FileHandler(log_file_path, mode = 'w'),logging.FileHandler("smbprotocol_debug.log"), logging.StreamHandler()]   # le path du fichier ou seront ecrites les erreurs de debogage
 )
 
 logger = logging.getLogger('logger')        #initialisation du logger
+
+
+# connexion à un serveur samba
 
 
 def find_config_files_path():
@@ -77,12 +86,13 @@ def verif_CLI(path_CLI_local):
         logger.info("CLI functional")
     else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
         logger.info("Error : Is your XRCenter activated?")
+        stdout = CLI_ope.stdout
+        logger.info(f"strdout :  {stdout}")
         return False
     return True
 
-
 def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
-    logger.info(f'your file "{file}" is send in SkyReal')
+    logger.info(f'your file "{file}" is sent in SkyReal')
     commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}"' #commande pour importer sur le deck
     start = time()
     import_final = run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
@@ -117,22 +127,59 @@ def get_IP_adress(JSON_file):
             logger.warning('Did you put the right IP_adress in the config file ?')
             return False
         return IP_adress
-         
+    
+def get_samba_username(client_socket, samba_username):
+    try: 
+        id_length = client_socket.recv(4)                                             # longeur de l'id workspace
+        received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
+        sleep(3)
+        logger.info(f'received_username_length "{received_id_length}"')
+        samba_username_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
+        samba_username =samba_username_bytes.decode('utf-8')                             # on le retransforme en string
+        logger.info(f'samba_username "{samba_username}"')
+        sleep(3)
+    except socket.error as e:
+        logger.warning('connexion error', e)
+        return ''
+    except Exception:
+        logger.warning('an error has occured, please try again')
+        return ''
+    return samba_username  
+
+def get_samba_password(client_socket, samba_password):
+    try: 
+        id_length = client_socket.recv(4)                                             # longeur de l'id workspace
+        received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
+        sleep(3)
+        logger.info(f'received_password_length "{received_id_length}"')
+        samba_password_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
+        samba_password = samba_password_bytes.decode('utf-8')                             # on le retransforme en string
+        sleep(3)
+        logger.info('samba_password')
+    except socket.error as e:
+        logger.warning('connexion error', e)
+        return ''
+    except Exception:
+        logger.warning('an error has occured, please try again')
+        return ''
+    return samba_password  
+     
         
 def get_ID_workspace(client_socket, id_workspace):
     try: 
         id_length = client_socket.recv(4)                                             # longeur de l'id workspace
         received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
+        sleep(3)
         logger.info(f'received_id_length "{received_id_length}"')
         id_workspace_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
         id_workspace = id_workspace_bytes.decode('utf-8')                             # on le retransforme en string
+        sleep(3)
         logger.info(f'id_workspace "{id_workspace}"')
-        logger.info(f'id_workspace imported "{id_workspace}"')
     except socket.error as e:
         logger.warning('connexion error', e)
         return ''
     except Exception:
-        logger.warning('an error as occured, please try again')
+        logger.warning('an error has occured, please try again')
         return ''
     return id_workspace  
 
@@ -144,9 +191,10 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
         if file_to_receive == 'close':     
             logger.info('the client will close now')                                # on arrete le programme
             return False
-   
+        logger.info(f'file_to_receive "{file_to_receive}"')
     # ce que le serveur doit faire
         check_existence = Path(file_to_receive)
+        logger.info(f'check_existence {check_existence}')
         if not check_existence.exists():                           # On considere que si un seul fichiers n'est pas present sur le pc, le repertoire n existe pas du tout et on ferme ce client
             logger.warning('the CAD file can not be found on this computer. You must be able to access it. This client will close') 
             return False
@@ -164,16 +212,16 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
 def verif_connexion_to_host(client_socket, adress_host):
     global IDLE_TIME_OUT 
     connected = False
-    time_before_unconnecting = 0
-    while not connected and time_before_unconnecting < 300 :         # 10 minutes d'attentes max
+    time_before_disconnecting = 0
+    while not connected and time_before_disconnecting < 300 :         # 10 minutes d'attentes max
         try:
             client_socket.connect(adress_host)        # si le serveur est bien connecté   
             logger.info('the client was successfuly connected')
             connected = True 
         except socket.error:
            sleep(5)
-           logger.info(f'waiting for a host server, remaining time before disconnexion : "{IDLE_TIME_OUT - time_before_unconnecting}"')
-           time_before_unconnecting += 5
+           logger.info(f'waiting for a host server, remaining time before disconnection : "{IDLE_TIME_OUT - time_before_disconnecting}"')
+           time_before_disconnecting += 5
     if not connected:
         logger.info('Failed to connect to the server after 5 minutes.')
         client_socket.close()  # Fermer le socket si la connexion échoue
@@ -184,12 +232,13 @@ def verif_connexion_to_host(client_socket, adress_host):
 class cad_importer_client(win32serviceutil.ServiceFramework):
     _svc_name_ = "cad_importer_client"
     _svc_display_name_ = "import your CAD file in a defined XRCenter"
-    _svc_description_ = "Ce service importe des données à partir d'un serveur distant."
+    _svc_description_ = "By connecting with a server, this service takes the path of Cad files and import them"
 
     def __init__(self, args):
         win32serviceutil.ServiceFramework.__init__(self, args)
         self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
         self.is_running = True
+        logger.info('info')
 
     def SvcDoRun(self):
         self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
@@ -209,16 +258,22 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         win32event.SetEvent(self.hWaitStop)
 
     def main(self):
+        
          # attendre que le programme demarre
          
         sleep(10)
+        
         # initialiser les variables
         
         ip_adress_host = ''
         id_workspace = ''
         time_record= 0.0
         path_CLI_local = None
+        share_name= 'Share'
         
+        server_name = '192.168.0.95'
+        samba_username = ''
+        samba_password = ''
         # verifications des variables 
         
         JSON_file = find_config_files_path()  # le path du json 
@@ -242,7 +297,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         if verif_CLI(path_CLI_local) == False:
             return
-             
+                 
         # se connecter au serveur 
            
         
@@ -250,10 +305,40 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         adress_host= (ip_adress_host, 3000)      # l'adresse du serveur host
         
         
-        if verif_connexion_to_host(client_socket, adress_host) == False:          # verifier si on est bien connecte sinon attendre
+        if verif_connexion_to_host(client_socket, adress_host) == False:          # verifier si on est bien connecté sinon attendre
             return 
         
         sleep(10) 
+        
+        # d'abord on lui transfere le username et le password pour se connecter a Samba
+        
+        samba_username = get_samba_username(client_socket, samba_username)
+        
+        samba_password = get_samba_password(client_socket, samba_password)
+        
+        # demarrer le client samba
+        
+        try:
+            connection = Connection(uuid.uuid4(), server_name, port = 445, require_signing=True)              # on se connecte a notre serveur samba
+            connection.connect()
+
+            
+            session = Session(connection, samba_username, samba_password)       # maintenir la connexion et rentrer les identifiants pour une verification
+            logger.info('connexion')
+            
+            logger.info('session')
+            
+            session.connect()
+            
+            
+            tree = TreeConnect(session, r'\\{}\{}'.format(server_name, share_name))
+            tree.connect()
+            
+            logger.info('A samba session has opened')
+            
+        except Exception as e:
+            logger.error(' error : ', e)
+            return False 
         
         # en premier lieu, on lui transfere l'ID du workspace
         
@@ -272,8 +357,8 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
                    break 
             except KeyboardInterrupt:
                 client_socket.close()
-            except socket.error:
-                logger.warning('there was a connexion issue')
+            except socket.error as e:
+                logger.warning(f'there was a connexion issue "{e}"')
                 sleep(2)
                 break 
             except Exception:
@@ -282,6 +367,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         
         client_socket.close()
+        connection.disconnect()
         return
     
 
@@ -290,4 +376,4 @@ if len(argv) == 1:
         servicemanager.PrepareToHostSingle(cad_importer_client)
         servicemanager.StartServiceCtrlDispatcher()
 else:
-    win32serviceutil.HandleCommandLine(cad_importer_client)        # si il y a un argument, par exemple create ou install
+    win32serviceutil.HandleCommandLine(cad_importer_client)        # si il y a un argument, par exemple create ou delete

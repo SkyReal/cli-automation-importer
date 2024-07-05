@@ -20,6 +20,14 @@ from datetime import datetime
 from subprocess import run
 from wakeonlan import send_magic_packet
 
+# import pour le server samba
+
+from smbprotocol.connection import Connection
+from smbprotocol.session import Session
+import uuid
+from getpass import getpass
+from smbprotocol.tree import TreeConnect
+
 
 
 # extensions de fichiers CAD pris en compte par SkyReal
@@ -31,6 +39,43 @@ IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
 
 
+# connexion à un serveur samba
+
+def samba_server(server_name,samba_username, samba_password, share_name ):
+    '''    server_name = "192.168.0.3"
+           samba_username = a definir
+           samba_password = a definir
+    '''
+    connection = None
+    session = None
+    tree = None
+
+    try:
+        connection = Connection(uuid.uuid4(), server_name, port = 445, require_signing=True)              # on se connecte a notre serveur samba
+        connection.connect()
+        
+        sleep(2)
+        
+        session = Session(connection, samba_username, samba_password)       # maintenir la connexion et rentrer les identifiants pour une verification
+        session.connect()
+
+        sleep(2)
+
+        tree = TreeConnect(session, fr"\\{server_name}\{share_name}")
+        tree.connect()
+        
+        sleep(2)
+        
+        print('A samba session has opened')
+        
+    except Exception as e:
+        print(' error : ', e)
+        return False 
+    return True 
+
+def ask_password():
+    password = getpass("Password : ")                     # saisir le mot de passe en masquant les caractères
+    return password
 
 # nouveautes wake on lan
 
@@ -58,13 +103,12 @@ def verif_excel_filename(excel_filename):
 
 def verif_repertory(CAD_repertory):   # verifier que notre deuxieme argument est valide 
     if os.path.exists(CAD_repertory) == False:
-        print('The path of your repertory does not exists')
+        print('Either the path of your repertory does not exists, or you dont have permissions to access it ')
         return False 
     if os.path.isdir(CAD_repertory) == False and  os.path.isfile(CAD_repertory) == False: 
         return False
     print('Your repertory seems correct and will be scanned ')
     return True
-
 
 def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
@@ -161,13 +205,29 @@ def send_workspace_id(client_socket, save_id_workspace):
     message_length = pack('!I', len(save_id_workspace_bytes))
     client_socket.sendall(message_length + save_id_workspace_bytes)
     return 
+
+def send_samba_username(client_socket, samba_username):
+    samba_username_bytes=  samba_username.encode('utf-8')
+    message_length = pack('!I', len(samba_username_bytes))
+    client_socket.sendall(message_length + samba_username_bytes)
+    return 
+    
+def send_samba_password(client_socket, samba_password):
+    samba_password_bytes=  samba_password.encode('utf-8')
+    message_length = pack('!I', len(samba_password_bytes))
+    client_socket.sendall(message_length + samba_password_bytes)
+    return 
     
 
-def accept_connexions(serversocket, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy) :        
+def accept_connexions(serversocket, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy, samba_username, samba_password) :        
     while len(fichiers_CAD) > 0 and new_clients_counter[0] < len(fichiers_CAD_copy):           # condition d'arret du thread
         try:
             (new_client_socket, client_address) = serversocket.accept()   #pour accepter la connexion de clients  
             new_clients_counter[0] += 1
+            send_samba_username(new_client_socket, samba_username)
+            sleep(3)
+            send_samba_password(new_client_socket, samba_password)
+            sleep(3)
             send_workspace_id(new_client_socket, save_id_workspace)
             client_state[new_client_socket] = 'ready'      #on initialise le premier client comme prêt a travailler
             print(' the workspace id was sent')
@@ -260,9 +320,9 @@ def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, 
     return
 
 
-def threading_in_progress(serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter):
+def threading_in_progress(serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter, samba_username, samba_password):
     
-    accept_thread = Thread(target = accept_connexions, args=(serversocket, fichiers_CAD_copy, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy), daemon = True)          #on verifie en permanence si il y a une adresse dispo
+    accept_thread = Thread(target = accept_connexions, args=(serversocket, fichiers_CAD_copy, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy, samba_username, samba_password), daemon = True)          #on verifie en permanence si il y a une adresse dispo
     accept_thread.start()
     
     send_thread = Thread(target = computer_in_work, args= (fichiers_CAD , working_list, client_state, result_dictionary), daemon = True )
@@ -309,17 +369,21 @@ def main():
     
     # vérification sur les arguments de la fonction
     
-    if not verif_repertory(CAD_repertory):
-        return
-    
     if not verif_excel_filename(excel_filename):
         print('error : the extension of your excel filename must belong the the following ones : .xlsx, .xlsm, .xltx,.xltm' )
         return 
     
     # ip_list = read_json(json_with_ip)
     
+
     # variables nécessaires pour la partie scan et infos
     
+        # serveur samba
+    server_name = '192.168.0.95'             # adresse fast share skyreal
+    samba_username = input('Samba username: ')                    # invité  
+    samba_password = ask_password()         # AZUREAD\adresse_skyreal
+    share_name = 'Share'
+        # scan 
     file_list=[]
     path_CLI_local = None
     save_id_workspace=''     
@@ -337,9 +401,11 @@ def main():
     
     
     
+    # infos et vérifications sur la CLI et le serveur samba
     
-    # infos et vérifications sur la CLI 
-    
+    if not samba_server(server_name, samba_username, samba_password, share_name):          # verificatios sur le serveur samba
+        return 
+        
     path_CLI_local= get_config_files_datas(path_CLI_local, JSON_file)
     if  path_CLI_local== None:
         print("error while trying to read config file")
@@ -350,6 +416,9 @@ def main():
     
     
     # scan du dossier 
+    
+    if not verif_repertory(CAD_repertory):          # on verifie que notre repertoire est valide 
+        return
     
     if not scan_CAD(file_list, fichiers_CAD, CAD_repertory) :
         return
@@ -376,8 +445,10 @@ def main():
     
     # for clients in ip_list:
     #     computer_wake_up(clients)
+    
+    
     try:
-        accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter)  
+        accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter, samba_username, samba_password)  
     except KeyboardInterrupt:
         for clients in client_state.keys():
             clients.close()
