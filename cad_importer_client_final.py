@@ -24,12 +24,6 @@ from sys import argv
 from struct import unpack
 IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
 
-# import pour le server samba
-
-import uuid
-from smbprotocol.connection import Connection
-from smbprotocol.session import Session
-from smbprotocol.tree import TreeConnect
 
 
 # on va repertorier les erreurs dans un journal
@@ -49,7 +43,23 @@ logging.basicConfig(
 logger = logging.getLogger('logger')        #initialisation du logger
 
 
-# connexion à un serveur samba
+# Mapping du reseau
+
+def create_mapping_road(username, password,drive_letter, share_path):
+    
+    powershell_orders= f"""
+    $user = '{username}'
+    $securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential ($user, $securePassword)
+    New-PSDrive -Name {drive_letter} -PSProvider FileSystem -Root '{share_path}' -Credential $credential -Persist
+    """
+    powershell_command = run(["Powershell", "-Command", powershell_orders], capture_output=True, text=True)
+    if powershell_command.stderr != '':
+        logging.error('error on password')
+        logging.error(powershell_command.stderr)
+    sleep(10)
+    return 
+
 
 
 def find_config_files_path():
@@ -128,15 +138,15 @@ def get_IP_adress(JSON_file):
             return False
         return IP_adress
     
-def get_samba_username(client_socket, samba_username):
+def get_mapping_username(client_socket, mapping_username):
     try: 
         id_length = client_socket.recv(4)                                             # longeur de l'id workspace
         received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
         sleep(3)
-        logger.info(f'received_username_length "{received_id_length}"')
-        samba_username_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
-        samba_username =samba_username_bytes.decode('utf-8')                             # on le retransforme en string
-        logger.info(f'samba_username "{samba_username}"')
+        logger.info(f'received_mapping_username_length "{received_id_length}"')
+        mapping_username_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
+        mapping_username =mapping_username_bytes.decode('utf-8')                             # on le retransforme en string
+        logger.info(f' mapping_username "{mapping_username}"')
         sleep(3)
     except socket.error as e:
         logger.warning('connexion error', e)
@@ -144,25 +154,25 @@ def get_samba_username(client_socket, samba_username):
     except Exception:
         logger.warning('an error has occured, please try again')
         return ''
-    return samba_username  
+    return mapping_username  
 
-def get_samba_password(client_socket, samba_password):
+def get_mapping_password(client_socket, mapping_password):
     try: 
         id_length = client_socket.recv(4)                                             # longeur de l'id workspace
         received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
         sleep(3)
         logger.info(f'received_password_length "{received_id_length}"')
-        samba_password_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
-        samba_password = samba_password_bytes.decode('utf-8')                             # on le retransforme en string
+        mapping_password_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
+        mapping_password = mapping_password_bytes.decode('utf-8')                             # on le retransforme en string
         sleep(3)
-        logger.info('samba_password')
+        logger.info('mapping_password')
     except socket.error as e:
         logger.warning('connexion error', e)
         return ''
     except Exception:
         logger.warning('an error has occured, please try again')
         return ''
-    return samba_password  
+    return mapping_password  
      
         
 def get_ID_workspace(client_socket, id_workspace):
@@ -269,11 +279,19 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         id_workspace = ''
         time_record= 0.0
         path_CLI_local = None
-        share_name= 'Share'
+
+
+         
+        # variable nécessaires au mapping
         
-        server_name = '192.168.0.95'
-        samba_username = ''
-        samba_password = ''
+        server_ip = '192.168.0.3'
+        share_name  = 'FastShare'
+        share_path = fr'\\{server_ip}\{share_name}'
+        mapping_username = ''
+        mapping_password = ''
+        drive_letter = 'Z'
+        
+        
         # verifications des variables 
         
         JSON_file = find_config_files_path()  # le path du json 
@@ -310,35 +328,16 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         sleep(10) 
         
-        # d'abord on lui transfere le username et le password pour se connecter a Samba
+        # d'abord on lui transfere le username et le password 
         
-        samba_username = get_samba_username(client_socket, samba_username)
+        mapping_username = get_mapping_username(client_socket, mapping_username)
         
-        samba_password = get_samba_password(client_socket, samba_password)
+        mapping_password = get_mapping_password(client_socket, mapping_password)
+            
+        # mapping du reseau 
         
-        # demarrer le client samba
-        
-        try:
-            connection = Connection(uuid.uuid4(), server_name, port = 445, require_signing=True)              # on se connecte a notre serveur samba
-            connection.connect()
-
-            
-            session = Session(connection, samba_username, samba_password)       # maintenir la connexion et rentrer les identifiants pour une verification
-            logger.info('connexion')
-            
-            logger.info('session')
-            
-            session.connect()
-            
-            
-            tree = TreeConnect(session, r'\\{}\{}'.format(server_name, share_name))
-            tree.connect()
-            
-            logger.info('A samba session has opened')
-            
-        except Exception as e:
-            logger.error(' error : ', e)
-            return False 
+        if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
+            return
         
         # en premier lieu, on lui transfere l'ID du workspace
         
@@ -367,7 +366,6 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         
         client_socket.close()
-        connection.disconnect()
         return
     
 
