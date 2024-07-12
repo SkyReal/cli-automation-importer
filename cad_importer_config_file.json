@@ -1,4 +1,5 @@
 {
 	"adresse_cli": "C:\\SkyRealSuite\\1.18\\XRCenterCLI\\Skr.XRCenter.Cmd.exe",
-	"adresse_ip" : "192.168.0.10"
+	"adresse_ip" : "192.168.0.10",
+	"share_path" : "\\\\192.168.0.3\\FastShare",
 }

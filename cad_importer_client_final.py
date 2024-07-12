@@ -22,7 +22,9 @@ from ipaddress import ip_address, AddressValueError
 import logging
 from sys import argv
 from struct import unpack
+
 IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
+PING_NUMBER = 20 
 
 
 
@@ -45,26 +47,35 @@ logger = logging.getLogger('logger')        #initialisation du logger
 
 # Mapping du reseau
 
-def create_mapping_road(username, password,drive_letter, share_path):
+def create_mapping_road(username, password, drive_letter, share_path):
     
-    powershell_orders= f"""
+    powershell_identification_orders= f"""
     $user = '{username}'
-    $securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
-    $credential = New-Object System.Management.Automation.PSCredential ($user, $securePassword)
-    New-PSDrive -Name {drive_letter} -PSProvider FileSystem -Root '{share_path}' -Credential $credential -Persist
+    $securePassword = '{password}'
+    $pass = ConvertTo-SecureString $securePassword -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential ($user, $pass)
+    $credential
+    New-SMbGlobalMapping -RemotePath '{share_path}' -Credential $credential -LocalPath G:
     """
-    powershell_command = run(["Powershell", "-Command", powershell_orders], capture_output=True, text=True)
-    if powershell_command.stderr != '':
-        logging.error('error on password')
-        logging.error(powershell_command.stderr)
-    sleep(10)
-    return 
+   
+    try:
+        powershell_command_1 = run([ "Powershell", "-Command",  powershell_identification_orders], capture_output=True, text=True)
+        logger.info('You can map your files')
+    except Exception as e:
+        logger.info("error is :", e)
+        #if powershell_command_1.stderr != '':
+        logger.info('error on password')
+        logger.info(powershell_command_1)
+        logger.info("ERRORS : ")
+        logger.info(powershell_command_1.stderr)
+        return False
 
+    return True
 
 
 def find_config_files_path():
    #le config file est toujours au meme endroit 
-   if not os.path.exists("C:\ProgramData\cli_automation_importer"):         # destiné a etre supprime avec l'installeuir
+   if not os.path.exists("C:\ProgramData\cli_automation_importer"):         # destiné a etre supprime avec l'installeur
        logger.info('do you have your config file?')
        return ''
    else:
@@ -83,8 +94,16 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
     if (path_CLI_local == None): 
         logger.info(' adress_xrcenter is missing in the config file.')
         return None
+    file.close
     return path_CLI_local
         
+def more_config_file_datas(share_path, JSON_file):      # a executer apres  get_config_files_datas
+    with open(JSON_file, 'r') as file: 
+        config_files_dictionnaire = load(file)   
+        share_path = config_files_dictionnaire["share_path"]     
+    if share_path == '':
+        logger.info(' the share path must be \\\\"IP_address"\\"share_name", dont forget to double your backslashes as you are working with a json')
+    return share_path
 
 def verif_CLI(path_CLI_local):
     if not os.path.exists(path_CLI_local):
@@ -97,7 +116,7 @@ def verif_CLI(path_CLI_local):
     else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
         logger.info("Error : Is your XRCenter activated?")
         stdout = CLI_ope.stdout
-        logger.info(f"strdout :  {stdout}")
+        logger.info(f"stdout :  {stdout}")
         return False
     return True
 
@@ -118,8 +137,26 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
 
 ##  COTE SERVEUR CLIENT
 
+## on va d'abord pinger le serveur jusqu'a avoir une reponse 
 
-def verif_IP_adress(ip_address_host):               # verifier la validite de l'adresse ip du host
+def ping_until_answer(ip_address):
+    global PING_NUMBER
+    x = 0
+    while x < PING_NUMBER:
+        powershell_ping_result = run(['ping', '-c', '1', ip_address], capture_output=True, text=True)
+        
+        if powershell_ping_result.returncode == 0:
+            logger.info('the client just reached the host pc ( ping command was successful')
+            return True# on a reussi a pinger le server
+         
+        x += 1 # on passe à l'essai suivant
+        logger.info(powershell_ping_result.returncode)
+        sleep(5)    # laisser le temps entre deux essais
+    logger.info(' The client was not able to reach the host computer ( no answer )')
+    return False 
+        
+    
+def verif_IP_address(ip_address_host):               # verifier la validite de l'adresse ip du host
     try:
        ip_address(ip_address_host)
        logger.info('Warning : make sure to verify that the IP adress in the json file is the one of your host computer, or the program wont work')
@@ -129,14 +166,14 @@ def verif_IP_adress(ip_address_host):               # verifier la validite de l'
         return False
     
     
-def get_IP_adress(JSON_file):
+def get_IP_address(JSON_file):
         file = open(JSON_file, 'r')
         config_files_dictionnaire = load(file)     
-        IP_adress = config_files_dictionnaire["adresse_ip"] 
-        if IP_adress == '' or IP_adress == None:
-            logger.warning('Did you put the right IP_adress in the config file ?')
+        IP_address = config_files_dictionnaire["adresse_ip_server"] 
+        if IP_address == '' or IP_address == None:
+            logger.warning('Did you put the right IP_address in the config file ?')
             return False
-        return IP_adress
+        return IP_address
     
 def get_mapping_username(client_socket, mapping_username):
     try: 
@@ -179,11 +216,11 @@ def get_ID_workspace(client_socket, id_workspace):
     try: 
         id_length = client_socket.recv(4)                                             # longeur de l'id workspace
         received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
-        sleep(3)
+        sleep(1.5)
         logger.info(f'received_id_length "{received_id_length}"')
         id_workspace_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
         id_workspace = id_workspace_bytes.decode('utf-8')                             # on le retransforme en string
-        sleep(3)
+        sleep(1)
         logger.info(f'id_workspace "{id_workspace}"')
     except socket.error as e:
         logger.warning('connexion error', e)
@@ -223,7 +260,7 @@ def verif_connexion_to_host(client_socket, adress_host):
     global IDLE_TIME_OUT 
     connected = False
     time_before_disconnecting = 0
-    while not connected and time_before_disconnecting < 300 :         # 10 minutes d'attentes max
+    while not connected and time_before_disconnecting < IDLE_TIME_OUT :         # 10 minutes d'attentes max
         try:
             client_socket.connect(adress_host)        # si le serveur est bien connecté   
             logger.info('the client was successfuly connected')
@@ -275,18 +312,15 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         # initialiser les variables
         
-        ip_adress_host = ''
+        IP_address_host = ''
         id_workspace = ''
         time_record= 0.0
         path_CLI_local = None
-
+        share_path = ''
 
          
         # variable nécessaires au mapping
         
-        server_ip = '192.168.0.3'
-        share_name  = 'FastShare'
-        share_path = fr'\\{server_ip}\{share_name}'
         mapping_username = ''
         mapping_password = ''
         drive_letter = 'Z'
@@ -301,14 +335,20 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
             return
         
         path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )      # on prend le path CLI
+        share_path = more_config_file_datas(share_path, JSON_file)              # on prend le path du partage
         
         # obtenir l'adresse ip 
         
-        ip_adress_host=  get_IP_adress(JSON_file)
+        IP_address_host=  get_IP_address(JSON_file)
         
         # verifier la validité de l'adresse ip
         
-        if not verif_IP_adress( ip_adress_host):
+        if not verif_IP_address( IP_address_host):
+            return 
+        
+        # pinger le pc host
+        
+        if not ping_until_answer(IP_address_host):
             return 
         
         # verifier la validité de la CLI et du XRCenter
@@ -320,7 +360,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
            
         
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        adress_host= (ip_adress_host, 3000)      # l'adresse du serveur host
+        adress_host= (IP_address_host, 3000)      # l'adresse du serveur host
         
         
         if verif_connexion_to_host(client_socket, adress_host) == False:          # verifier si on est bien connecté sinon attendre
@@ -337,6 +377,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         # mapping du reseau 
         
         if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
+            logger.info("error on mapping")
             return
         
         # en premier lieu, on lui transfere l'ID du workspace

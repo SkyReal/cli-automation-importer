@@ -5,15 +5,10 @@ Created on Mon Jul  8 15:47:29 2024
 @author: AxelBaillet
 """
 
-import subprocess
-from sys import argv
+from subprocess import run
 import os
 import logging
 from time import sleep
-import win32serviceutil
-import win32service
-import win32event
-import servicemanager
 
 log_directory = r'C:\ProgramData\cli_automation_importer'
 log_file_path = os.path.join(log_directory, 'report.log')
@@ -29,126 +24,70 @@ logging.basicConfig(
 
 logger = logging.getLogger('logger')        #initialisation du logger
 
-def create_mapping_road(username, password,drive_letter, share_path):
+def create_mapping_road(username, password, drive_letter, share_path):
     
-    powershell_orders= f"""
+    powershell_drive_existence  = f"""
+    if (Get-PSDrive -Name '{drive_letter}' -ErrorAction SilentlyContinue) {{
+            net use '{drive_letter}' /delete 
+    }}
+    """
+    
+    powershell_identification_orders= f"""
     $user = '{username}'
     $securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
     $credential = New-Object System.Management.Automation.PSCredential ($user, $securePassword)
-    New-PSDrive -Name {drive_letter} -PSProvider FileSystem -Root '{share_path}' -Credential $credential -Persist
     """
-    powershell_command =  subprocess.run(["Powershell", "-Command", powershell_orders], capture_output=True, text=True)
-    if powershell_command.stderr != '':
-        logging.error('error on password')
-        logging.error(powershell_command.stderr)
+    
+    powershell_new_driver = f"New-PSDrive -Name '{drive_letter}' -PSProvider FileSystem -Root '{share_path}' -Credential $credential -Persist -Scope Global"
+    
+    
+    print( 'powershell_identification_orders', powershell_identification_orders)
+    print(powershell_new_driver)
+    
+    
+    powershell_command_existence = run(["Powershell", "-Command",  powershell_drive_existence], capture_output=True, text=True)
+    if powershell_command_existence.stderr != '':
+        print('unidentified error')
+        print(powershell_command_existence.stderr)
+        
+        
+    powershell_command_1 = run(["Powershell", "-Command",  powershell_identification_orders], capture_output=True, text=True)
+    if powershell_command_1.stderr != '':
+        print('error on password')
+        print(powershell_command_1.stderr)
+        return False
+    
+    powershell_command_2 = run(["Powershell", "-Command",  powershell_new_driver], capture_output=True, text=True)
+    if powershell_command_2.stderr != '':
+        print('error on driver')
+        print(powershell_command_2.stderr)
+        return False
+    
     sleep(10)
-    return 
-
-
-
-
     
-    # Lister les fichiers dans le répertoire
+    return True
 
-            
-class cad_importer_client(win32serviceutil.ServiceFramework):
-    _svc_name_ = "cad_test"
-    _svc_display_name_ = "Import CAD Files"
-    _svc_description_ = "Automates the import of CAD files from a network share."
 
-    def __init__(self, args):
-        win32serviceutil.ServiceFramework.__init__(self, args)
-        self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
-        self.is_running = True
-        logger.info('Service started.')
 
-    def SvcStop(self):
-        self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-        win32event.SetEvent(self.hWaitStop)
-        self.is_running = False
-        logger.info('Service is stopping...')
 
-    def SvcDoRun(self):
-        self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
-        servicemanager.LogMsg(servicemanager.EVENTLOG_INFORMATION_TYPE,
-                               servicemanager.PYS_SERVICE_STARTED,
-                               (self._svc_name_, ''))
-        self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-        self.main()
-
-    def main(self):
-        
-        # variable nécessaires au mapping
-        
-        server_ip = '192.168.0.3'
-        share_name  = 'FastShare'
-        share_path = fr'\\{server_ip}\{share_name}'
-        username = ''
-        password = ''
-        drive_letter = 'Z'
-        
-        
-        if not password:
-            raise ValueError("the password cant be empty")
-        
+def main():
+    
+    # variable nécessaires au mapping
+    
+    server_ip = '192.168.0.3'
+    share_name  = 'FastShare'
+    share_path = fr'\\{server_ip}\{share_name}'
+    username = input ('username :')
+    password = input('password: ')
+    drive_letter = 'Z'
+    
+    
+    if not password:
+        raise ValueError("the password or username can not be empty")
+    
   
-        create_mapping_road(username, password,drive_letter, share_path)
-        
-        return
-        
-if len(argv) == 1:
-    servicemanager.Initialize()
-    servicemanager.PrepareToHostSingle(cad_importer_client)
-    servicemanager.StartServiceCtrlDispatcher()
-else:
-    win32serviceutil.HandleCommandLine(cad_importer_client)
+    create_mapping_road(username, password,drive_letter, share_path)
     
+    return
     
-    
-# def check_mapping_existence(drive_letter): 
-    
-#     get_mappings_cmd = 'Get-PSDrive -PSProvider FileSystem | Format-Table -Property Name'
-    
-#     # Exécution de la commande PowerShell à travers subprocess
-#     result = subprocess.run(["powershell.exe", "-Command", get_mappings_cmd], capture_output=True, text=True)
-   
-#     if result.returncode != 0:
-#         logging.error("The program wont be able to access the file (mapping error):")
-#         logging.error(result.stderr)
-#         return None 
-#     for k in result.stdout:
-#         if k == drive_letter:
-#             drive_letter = take_another_letter(drive_letter)
-#     return drive_letter
-   
-# def take_another_letter(letter):
-#     alphabet = ['O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
-#     alphabet.pop(letter)
-#     letter = alphabet(0)
-#     return letter
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+main()
