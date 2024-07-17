@@ -78,7 +78,7 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
         return None
     file = open(JSON_file, 'r')
     config_files_dictionnaire = load(file)                                     #on convertit le json en dictionnaire 
-    path_CLI_local = config_files_dictionnaire["address_cli"] 
+    path_CLI_local = config_files_dictionnaire["path_cli"] 
     if (path_CLI_local == None): 
         logger.info(' adress_xrcenter is missing in the config file.')
         return None
@@ -109,7 +109,6 @@ def always_more_config_file_datas(JSON_file):
             xrcenter_dictionary = load(xrcenter_file)
             base_address = xrcenter_dictionary["XRCenter"]["BaseAddress"]
             new_base_address = f'https://{ip_address_XRCENTER}:9228/'
-            logger.info(new_base_address)
         xrcenter_file.close()
         with open(xrcenter_config_file, 'w') as xrcenter_file_reopened:
             xrcenter_dictionary["XRCenter"]["BaseAddress"] = new_base_address
@@ -131,20 +130,25 @@ def clear_XRCENTER_config_file(base_address):
     xrcenter_file_reopened.close()
     return
 
+
 def verif_CLI(path_CLI_local):
+    x=0
     if not os.path.exists(path_CLI_local):
         logger.info('You need to write the correct local path of your cli in the config file')
         return False
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
-    CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
-    if 'success' in CLI_ope.stdout.lower():                                #le XRCENTER se lance avec le chemin basique 
-        logger.info("CLI functional")
-    else:                                                                       #on fait l'opération avec les paramètres que l'utilisateur a inséré
-        logger.info("Error : Is your XRCenter activated?")
-        stdout = CLI_ope.stdout
-        logger.info(f"stdout :  {stdout}")
-        return False
-    return True
+    while x < 10:                                                                                           # max 10 essais
+        CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
+        logger.info(CLI_ope)
+        if 'success' in CLI_ope.stdout.lower():                                                             #le XRCENTER se lance avec le chemin basique 
+            logger.info("CLI functional")
+            return True 
+        else:                                                                                               #on fait l'opération avec les paramètres que l'utilisateur a inséré
+            logger.info("Trying to join the XRCenter")
+            stdout = CLI_ope.stdout
+            logger.info(f"stdout :  {stdout}")
+            x += 1                  
+    return False
 
 def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
     logger.info(f'your file "{file}" is sent in SkyReal')
@@ -328,7 +332,7 @@ def verif_connexion_to_host(client_socket, adress_host):
 
 
 class cad_importer_client(win32serviceutil.ServiceFramework):
-    _svc_name_ = "cad_importer_client"
+    _svc_name_ = "cad_importer_client_service"
     _svc_display_name_ = "import your CAD file in a defined XRCenter"
     _svc_description_ = "By connecting with a server, this service takes the path of Cad files and import them"
 
@@ -336,7 +340,8 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         win32serviceutil.ServiceFramework.__init__(self, args)
         self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
         self.is_running = True
-
+        logger.info('service waking up...')
+        
     def SvcDoRun(self):
         self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
         servicemanager.LogMsg(
@@ -358,7 +363,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
          # attendre un lancement propre du systeme
          
-        sleep(60)
+        sleep(30)
         
         # initialiser les variables
         

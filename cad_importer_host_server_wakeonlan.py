@@ -109,12 +109,20 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
         return None
     file = open(JSON_file, 'r')
     config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
-    path_CLI_local = config_files_dictionnaire["adresse_cli"] 
+    path_CLI_local = config_files_dictionnaire["path_cli"] 
     if (path_CLI_local == None): 
         print(' ADRESSE_XRCENTER is missing in the config file.')
         return None
     return path_CLI_local
 
+def more_config_file_datas(share_path, JSON_file):      # a executer apres  get_config_files_datas
+    with open(JSON_file, 'r') as file: 
+        config_files_dictionnaire = json.load(file)   
+        share_path = config_files_dictionnaire["share_path"]     
+    if share_path == '' or  share_path == 'value_to_fill':
+        print(' the share path must be \\\\"IP_address"\\"share_name", dont forget to double your backslashes as you are working with a json')
+    file.close()
+    return share_path   
 
 def verif_CLI(path_CLI_local):
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
@@ -365,15 +373,7 @@ def closing_clients(client_state):
         kill_clients.sendall(closing_message_byte)      
     return
      
-  
-def find_config_files_path():
-   #le config file est toujours au meme endroit 
-   if not os.path.exists("C:\ProgramData\cli_automation_importer"):         # destiné a etre supprime avec l'installeur
-       print('do you have your config file?')
-       return ''
-   else:
-       config_file_path = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
-   return config_file_path
+
 
 def main():  
     
@@ -387,7 +387,7 @@ def main():
     
     excel_filename = args.excel_filename if args.excel_filename else 'results_import_CAD.xlsx'              # nom du fichier excel
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
-    JSON_file = find_config_files_path()
+    JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
     
     # json_with_ip = args.json_ip if args.json_ip else 'ip.json'
     
@@ -429,14 +429,14 @@ def main():
     new_clients_counter = [0]
     
     
-    # verif sur le mapping
-    
-    if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
-        return
     
     # infos et vérifications sur la CLI 
 
     path_CLI_local= get_config_files_datas(path_CLI_local, JSON_file)
+    
+    share_path = more_config_file_datas(share_path, JSON_file)
+    
+    
     if  path_CLI_local== None:
         print("error while trying to read config file")
         return
@@ -445,6 +445,11 @@ def main():
         return 
     
     CLI_version= check_CLI_version(path_CLI_local, CLI_version)
+    
+    # verif sur le mapping
+    
+    if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
+        return
     
     # scan du dossier 
     
