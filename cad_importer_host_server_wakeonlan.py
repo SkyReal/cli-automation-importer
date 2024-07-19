@@ -70,16 +70,16 @@ def ask_password():
 
 # nouveautes wake on lan
 
-def computer_wake_up(ip_address):           # marche seulement si le pc est eteint 
-    send_magic_packet('FF:FF:FF:FF:FF:FF', ip_address=ip_address)   # il faut que les adresses ip soient fixes
-    sleep(50)
+def computer_wake_up(mac_address):           # marche seulement si le pc est eteint 
+    send_magic_packet(mac_address)   # il faut que les adresses ip soient fixes
     return
 
 
 def read_json(fichier_json):        # lit le fichier json et ajoute les adresses ip a celles pretes a travailler
-    with open('fichier_json', 'r') as j:
-        ip_list = json.load(j)
-    return ip_list
+    with open(fichier_json, 'r') as file:
+        ip_dictionary = json.load(file)
+    file.close()
+    return ip_dictionary
     
 
 #   PARTIE SCAN D'UN DOSSIER MIS EN ARGUMENT
@@ -122,7 +122,7 @@ def more_config_file_datas(share_path, JSON_file):      # a executer apres  get_
     if share_path == '' or  share_path == 'value_to_fill':
         print(' the share path must be \\\\"IP_address"\\"share_name", dont forget to double your backslashes as you are working with a json')
     file.close()
-    return share_path   
+    return share_path
 
 def verif_CLI(path_CLI_local):
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
@@ -158,7 +158,7 @@ def find_files(file_list, CAD_repertory):   # fonction intermediaire
     return 
 
 
-def scan_CAD(file_list, fichiers_CAD, CAD_repertory ):
+def scan_CAD(file_list, CAD_files, CAD_repertory ):
     find_files(file_list, CAD_repertory)
     if file_list == [] :                                               # Le dossier est vide 
         print('This repertory is empty') 
@@ -167,9 +167,9 @@ def scan_CAD(file_list, fichiers_CAD, CAD_repertory ):
         for k in range(0,len(file_list)):
             for i in range(0, len(extensions)):                             #on s'arrête s'il n'existe pas de fichers CAD
                 if file_list[k].lower().endswith(extensions[i].lower()) == True :      #c'est un dossier CAD, on regarde son extension en minuscule pour le rendre insensible a la casse
-                    fichiers_CAD.append(file_list[k])
+                    CAD_files.append(file_list[k])
                     break                                                   #on n'a pas besoin de regarder le reste des extensions
-    if (fichiers_CAD == []):                                                # il n'y avait pas de fichiers à traiter
+    if (CAD_files == []):                                                # il n'y avait pas de fichiers à traiter
         print('There was no CAD files in this repertory')
         return False 
     return True
@@ -213,6 +213,16 @@ def check_CLI_version(path_CLI_local, CLI_version):
 
 # PARTIE SERVEUR 
 
+def send_wake_on_lan(client_socket, wake_on_lan):
+    if wake_on_lan:
+        message = 'activated'
+    else: 
+        message = 'desactivated'
+    message_bytes=  message.encode('utf-8')
+    message_length = pack('!I', len(message_bytes))
+    client_socket.sendall(message_length + message_bytes)
+    return 
+
 def send_CLI_version(client_socket, CLI_version):
     CLI_version_bytes=  CLI_version.encode('utf-8')
     message_length = pack('!I', len(CLI_version_bytes))
@@ -239,11 +249,13 @@ def send_mapping_password(client_socket, mapping_password):
     return 
     
 
-def accept_connexions(serversocket, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy, mapping_username, mapping_password, CLI_version) :        
-    while len(fichiers_CAD) > 0 and new_clients_counter[0] < len(fichiers_CAD_copy):           # condition d'arret du thread
+def accept_connexions(serversocket, CAD_files, client_state, save_id_workspace, new_clients_counter, CAD_files_copy, mapping_username, mapping_password, CLI_version, wake_on_lan) :        
+    while len(CAD_files) > 0 and new_clients_counter[0] < len(CAD_files_copy):           # condition d'arret du thread
         try:
             (new_client_socket, client_address) = serversocket.accept()   #pour accepter la connexion de clients  
             new_clients_counter[0] += 1
+            send_wake_on_lan(new_client_socket, wake_on_lan)                # on regarde si le wake_on_lan est activé
+            sleep(2)
             send_CLI_version(new_client_socket, CLI_version)
             sleep(2)
             send_mapping_username(new_client_socket, mapping_username)
@@ -263,7 +275,7 @@ def accept_connexions(serversocket, fichiers_CAD, client_state, save_id_workspac
     
 
     
-def computer_in_work(fichiers_CAD, working_list, client_state, result_dictionary): 
+def computer_in_work(CAD_files, working_list, client_state, result_dictionary): 
     clients_list = client_state.keys()              # liste des elements du dictionnaire
     while True:
         if len(clients_list)>0:         # on verifie qu'il y en a au moins un a etudier
@@ -282,9 +294,9 @@ def computer_in_work(fichiers_CAD, working_list, client_state, result_dictionary
                     client_socket.close()                                                                                        # on ferme le socket
             if client_list_writeable != []:                                                                                      # ces client sont prêt à recevoir des infos
                 for client_sockets in client_list_writeable:
-                    if len(fichiers_CAD) >0 :
+                    if len(CAD_files) >0 :
                         if client_state[client_sockets] == 'ready':
-                            file_to_send = fichiers_CAD.pop(0)                                                               # on prend le nouveau premier element de fichiers cad
+                            file_to_send = CAD_files.pop(0)                                                               # on prend le nouveau premier element de fichiers cad
                             file_to_send_bytes= file_to_send.encode('utf-8')                                                 # il faut envoyer le fichier en binaire
                             client_sockets.sendall(file_to_send_bytes)                                                       # on envoie le fichier au client dispo 
                             result_dictionary[file_to_send] = client_sockets                                                 # le path est en premier lieu associé au client
@@ -299,7 +311,7 @@ def computer_in_work(fichiers_CAD, working_list, client_state, result_dictionary
 
 
 
-def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, number_of_received_import):
+def reception(working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import):
     while True:
         if len(client_state)>0:
             if working_list != []:
@@ -324,7 +336,7 @@ def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, 
                             client_state[sleeping_clients] = 'ready'    
                             working_list.remove(sleeping_clients)
                             print('the result of the import was acquired')
-                            print( number_of_received_import[0],'/', len(fichiers_CAD_copy))
+                            print( number_of_received_import[0],'/', len(CAD_files_copy))
                         except socket.error:
                             print('Error while getting a client response')
                             client_state.pop(sleeping_clients)
@@ -332,7 +344,7 @@ def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, 
                                 if result_dictionary[key] == sleeping_clients:
                                     result_dictionary[key] = -2
                             number_of_received_import[0] +=1
-                            working_list.remove(sleeping_clients)            # on l'enleve completement de la liste
+                            working_list.remove(sleeping_clients)                                                              # on l'enleve completement de la liste
                             sleeping_clients.close()
                         except Exception:
                             client_state.pop(sleeping_clients)
@@ -340,29 +352,43 @@ def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, 
                                 if result_dictionary[key] == sleeping_clients:
                                     result_dictionary[key] = -2
                             number_of_received_import[0] +=1
-                            working_list.remove(sleeping_clients)            # on l'enleve completement de la liste
+                            working_list.remove(sleeping_clients)                                                              # on l'enleve completement de la liste
                             sleeping_clients.close()
                             
     return
 
-def threading_in_progress(serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version):
+
+
+def wake_on_lan(mac_addresses, wake_on_lan):
+    if wake_on_lan:
+        for clients in mac_addresses:
+            computer_wake_up(clients)           # on reveille chacun des pc spécifiés
+            sleep(180)                          # on attend 3 min entre chacun des pcs allumés  
+    return 
+
+
+def threading_in_progress(serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan):
     
-    accept_thread = Thread(target = accept_connexions, args=(serversocket, fichiers_CAD_copy, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy, mapping_username, mapping_password, CLI_version), daemon = True)          #on verifie en permanence si il y a une adresse dispo
+    accept_thread = Thread(target = accept_connexions, args=(serversocket, CAD_files_copy, client_state, save_id_workspace, new_clients_counter, CAD_files_copy, mapping_username, mapping_password, CLI_version, wake_on_lan), daemon = True)          #on verifie en permanence si il y a une adresse dispo
     accept_thread.start()
     
-    send_thread = Thread(target = computer_in_work, args= (fichiers_CAD , working_list, client_state, result_dictionary), daemon = True)
+    send_thread = Thread(target = computer_in_work, args= (CAD_files , working_list, client_state, result_dictionary), daemon = True)
     send_thread.start()    
     
-    reception_thread = Thread(target = reception , args= (working_list, client_state, fichiers_CAD_copy, result_dictionary, number_of_received_import), daemon = True)
+    reception_thread = Thread(target = reception , args= (working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import), daemon = True)
     reception_thread.start()
     
-    return accept_thread,send_thread, reception_thread
+    WOL_thread = Thread(target = wake_on_lan , args= (mac_addresses, wake_on_lan) , daemon = True)
+    WOL_thread.start()
+    
+    return accept_thread,send_thread, reception_thread, WOL_thread
     
 
-def closing_thread(accept_thread, send_thread,reception_thread):
+def closing_thread(accept_thread, send_thread,reception_thread, WOL_thread):
     accept_thread.join(0)    
     send_thread.join(0)
     reception_thread.join(0)
+    WOL_thread.join(0)
     sleep(5)    
     return
     
@@ -374,7 +400,6 @@ def closing_clients(client_state):
     return
      
 
-
 def main():  
     
     # informations sur les arguments de la fonction
@@ -382,14 +407,16 @@ def main():
     parser = argparse.ArgumentParser(description = 'Process the three arguments')                     # va gerer les differents arguments
     parser.add_argument('--excel_filename', type = str, help = 'name of your excel file. If not specified, the results will be put in a file named "results_import_CAD"')  #le nom du fichier excel
     parser.add_argument('--rep', type = str, help = 'name of your repertory containing the CAD files.', required= True)
-    parser.add_argument('--json_ip', type = str, help = 'name of your json containing the ip adresses of the clients when the program ends.')
+    parser.add_argument('--json_mac', type = str, help = 'name of your json containing the mac adresses of the clients when the program ends.')
+    parser.add_argument('--W', type = bool , help = 'enable WakeOnLan or disable it (True/False) ')  #le nom du fichier excel
+
     args = parser.parse_args()  # parcourir les differents arguments
     
     excel_filename = args.excel_filename if args.excel_filename else 'results_import_CAD.xlsx'              # nom du fichier excel
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
     JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
-    
-    # json_with_ip = args.json_ip if args.json_ip else 'ip.json'
+    wake_on_lan = args.W if args.W else False                                           # de base le wake on lan n'est pas actif 
+    json_with_mac = args.json_ip if args.json_ip else 'ip.json'
     
     
     # vérification sur les arguments de la fonction
@@ -398,7 +425,8 @@ def main():
         print('error : the extension of your excel filename must belong to the following ones : .xlsx, .xlsm, .xltx,.xltm' )
         return 
     
-    # ip_list = read_json(json_with_ip)
+    if wake_on_lan:
+        mac_addresses = read_json(json_with_mac)
     
 
     # variables nécessaires pour la partie scan et infos
@@ -421,21 +449,21 @@ def main():
     
     global IDLE_TIME_OUT
     
-    fichiers_CAD = []
+    CAD_files = []
     working_list = []
     client_state = {}
-    timer = 0
     number_of_received_import = [0]           # pour compter le nombre d'import recu
     new_clients_counter = [0]
     
     
+    # verif sur le mapping
+    
+    if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
+        return
     
     # infos et vérifications sur la CLI 
 
     path_CLI_local= get_config_files_datas(path_CLI_local, JSON_file)
-    
-    share_path = more_config_file_datas(share_path, JSON_file)
-    
     
     if  path_CLI_local== None:
         print("error while trying to read config file")
@@ -446,21 +474,16 @@ def main():
     
     CLI_version= check_CLI_version(path_CLI_local, CLI_version)
     
-    # verif sur le mapping
-    
-    if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
-        return
-    
     # scan du dossier 
     
     if not verif_repertory(CAD_repertory):          # on verifie que notre repertoire est valide 
         return
     
-    if not scan_CAD(file_list, fichiers_CAD, CAD_repertory) :
+    if not scan_CAD(file_list, CAD_files, CAD_repertory) :
         return
     
-    fichiers_CAD_copy = list(fichiers_CAD) # copie pour la condition
-    result_dictionary = {path : 0 for path in fichiers_CAD}         # a la fin, pour que chaque path soit associe a son temps d'import
+    CAD_files_copy = list(CAD_files) # copie pour la condition
+    result_dictionary = {path : 0 for path in CAD_files}         # a la fin, pour que chaque path soit associe a son temps d'import
     
     
 
@@ -480,28 +503,25 @@ def main():
     serversocket.bind(( socket.gethostbyname(socket.gethostname()), 3000) )        
     serversocket.listen()
     
-    # for clients in ip_list:
-    #     computer_wake_up(clients)
-    
+
     
 
     try:
-        accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version)  
+        accept_thread, send_thread, reception_thread, WOL_thread = threading_in_progress( serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan)  
     except KeyboardInterrupt:
         for clients in client_state.keys():
             clients.close()
         serversocket.close()
-    
-    while timer < IDLE_TIME_OUT and number_of_received_import[0] < len( fichiers_CAD_copy ):
+
+        
+    while number_of_received_import[0] < len( CAD_files_copy ):
         if len(client_state) != 0:
-            timer = 0  
             sleep(2)
         else: 
-            print(' there are no clients, remaining time before disconnexion',  IDLE_TIME_OUT - timer)
+            print(' there are no clients...')
             sleep(5)
-            timer += 5
     
-    closing_thread(accept_thread, send_thread, reception_thread)
+    closing_thread(accept_thread, send_thread, reception_thread, WOL_thread)
         
     closing_clients(client_state)   
     

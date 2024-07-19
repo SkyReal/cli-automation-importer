@@ -38,7 +38,7 @@ if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
 logging.basicConfig(
-    level=logging.DEBUG,                                     # on affichera les messages de gravite minimale 'info'
+    level=logging.INFO,                                     # on affichera les messages de gravite minimale 'info'
     format='%(asctime)s - %(levelname)s - %(message)s',     # le format des messages affiches 
     handlers=[logging.FileHandler(log_file_path, mode = 'w'),logging.FileHandler("smbprotocol_debug.log"), logging.StreamHandler()]   # le path du fichier ou seront ecrites les erreurs de debogage
 )
@@ -70,6 +70,18 @@ def create_mapping_road(username, password, drive_letter, share_path):
     return True
 
 
+
+# prendre les données 
+
+def stop_program(wake_on_lan_activated):
+    if wake_on_lan_activated:
+        os.system("shutdown /s /t 60")
+    return 
+        
+        
+        
+        
+        
 def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
         pass 
@@ -81,6 +93,9 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
     path_CLI_local = config_files_dictionnaire["path_cli"] 
     if (path_CLI_local == None): 
         logger.info(' adress_xrcenter is missing in the config file.')
+        return None
+    if not os.path.exists(path_CLI_local):                                    # on verifie que le chemin existe sur le pc
+        logger.info('You need to write the correct local path of your cli in the config file')
         return None
     file.close()
     return path_CLI_local
@@ -133,9 +148,6 @@ def clear_XRCENTER_config_file(base_address):
 
 def verif_CLI(path_CLI_local):
     x=0
-    if not os.path.exists(path_CLI_local):
-        logger.info('You need to write the correct local path of your cli in the config file')
-        return False
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
     while x < 10:                                                                                           # max 10 essais
         CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True)
@@ -192,26 +204,42 @@ def get_server_CLI_version(client_socket, server_CLI_version ):
         logger.warning('an error has occured, please try again')
         return ''
     return server_CLI_version
+
+def is_wake_on_lan_activated(wake_on_lan):
+    if wake_on_lan == 'activated':
+        return True 
+    elif wake_on_lan == "desactivated":
+        return False
+    else:
+        print('error while getting datas, please try again')
+        return 
+    
+    
 ##  COTE SERVEUR CLIENT
 
 ## on va d'abord pinger le serveur jusqu'a avoir une reponse 
 
-def ping_until_answer(ip_address):
+def ping_until_answer(ip_address, ping_result):
     global PING_NUMBER
     x = 0
     while x < PING_NUMBER:
-        powershell_ping_result = run(['ping', '-c', '1', ip_address], capture_output=True, text=True)
-        
-        if powershell_ping_result.returncode == 0:
-            logger.info('the client just reached the host pc ( ping command was successful ) ')
-            return True# on a reussi a pinger le server
-         
-        x += 1 # on passe à l'essai suivant
-        logger.info(powershell_ping_result.returncode)
-        sleep(5)    # laisser le temps entre deux essais
-    logger.info(' The client was not able to reach the host computer ( no answer )')
-    return False 
-        
+        if ip_address == socket.gethostbyname(socket.gethostname()):
+            x  = PING_NUMBER
+            ping_result = True 
+            return ping_result 
+        else:
+            powershell_ping_result = run(['ping', '-c', '1', ip_address], capture_output=True, text=True)
+            
+            if powershell_ping_result.returncode == 0:
+                logger.info('the client just reached the host computer ( ping command was successful ) ')
+                ping_result = True 
+                return ping_result                                      # on a reussi a pinger le server
+             
+            x += 1                                                      # on passe à l'essai suivant
+            sleep(5)                                                    #  laisser le temps entre deux essais
+    logger.info('the client was not able to reach the server. It will try again ')
+    ping_result =False                                                  # commande a priori inutile mais on ne sait jamais ( le ping result est par defaut False)
+    return ping_result 
 
 
 def verif_IP_address(ip_address_host):               # verifier la validite de l'adresse ip du host
@@ -232,6 +260,25 @@ def get_IP_address(JSON_file):
             logger.warning('Did you put the right IP address in the config file ?')
             return False
         return IP_address
+    
+    
+def get_wake_on_lan(client_socket, wake_on_lan):
+    try: 
+        id_length = client_socket.recv(4)                                             # longeur de l'id workspace
+        received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
+        sleep(3)
+        wake_on_lan_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
+        wake_on_lan =wake_on_lan_bytes.decode('utf-8')                             # on le retransforme en string
+        logger.info(f' wake_on_lan "{wake_on_lan}"')
+        sleep(3)
+    except socket.error as e:
+        logger.warning('connexion error', e)
+        return ''
+    except Exception:
+        logger.warning('an error has occured, please try again')
+        return ''
+    return wake_on_lan  
+ 
     
 def get_mapping_username(client_socket, mapping_username):
     try: 
@@ -311,31 +358,32 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
     return True
         
 
-def verif_connexion_to_host(client_socket, adress_host):
-    global IDLE_TIME_OUT 
+def verif_connexion_to_host(client_socket, adress_host, ip_address, path_CLI_local):
     connected = False
-    time_before_disconnecting = 0
-    while not connected and time_before_disconnecting < IDLE_TIME_OUT :         # 10 minutes d'attentes max
-        try:
-            client_socket.connect(adress_host)        # si le serveur est bien connecté   
-            logger.info('the client was successfuly connected')
-            connected = True 
-        except socket.error:
-           sleep(5)
-           logger.info(f'waiting for a host server, remaining time before disconnection : "{IDLE_TIME_OUT - time_before_disconnecting}"')
-           time_before_disconnecting += 5
-    if not connected:
-        logger.info(f'Failed to connect to the server after {IDLE_TIME_OUT} minutes.')
-        client_socket.close()  # Fermer le socket si la connexion échoue
-        return False
-    return True
+    ping_result = False 
+    while not ping_result or not connected :        # pinger le pc puis voir si il arrive à se connecter
+        if not ping_result:
+            ping_result = ping_until_answer(ip_address, ping_result)
+            if not verif_CLI(path_CLI_local):                   # si la CLI n'est pas bonne, on arrete le programme
+                logger.info('Failed to connect') 
+                return False     
+        else:                                                   # on a reussi a pinger, il reste a se connecter
+            try:
+                client_socket.connect(adress_host)        # si le serveur est bien connecté   
+                logger.info('the client was successfuly connected')
+                connected = True        # je considere que si il a reussi à etablir la connexion, il arrivera à se connecter au bout d'un moment
+            except socket.error:
+               sleep(5)
+               logger.info('waiting for a host server')
+    return True 
+
 
 
 class cad_importer_client(win32serviceutil.ServiceFramework):
     _svc_name_ = "cad_importer_client_service"
     _svc_display_name_ = "import your CAD file in a defined XRCenter"
     _svc_description_ = "By connecting with a server, this service takes the path of Cad files and import them"
-
+    
     def __init__(self, args):
         win32serviceutil.ServiceFramework.__init__(self, args)
         self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
@@ -374,6 +422,9 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         share_path = ''
         server_CLI_version = ''
         CLI_version = ''
+        wake_on_lan = ''
+        wake_on_lan_activated = False
+        
         # variable nécessaires au mapping
         
         mapping_username = ''
@@ -384,11 +435,10 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         # verifications des variables 
         
         JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"  # le path du json 
-        
-        if JSON_file == '':
-            logger.info('Is your config file next to your client program?')
-            return
-        
+  
+    
+          
+
         path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )      # on prend le path CLI
         share_path = more_config_file_datas(share_path, JSON_file)              # on prend le path du partage
         XRCENTER_initial_address = always_more_config_file_datas(JSON_file)     # pour la reprendre après
@@ -399,6 +449,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
             return 
         
         # verifier que les versions de la CLI sont compatibles 
+        
         CLI_version = check_CLI_version(path_CLI_local, CLI_version)
 
         # obtenir l'adresse ip 
@@ -408,11 +459,6 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         # verifier la validité de l'adresse ip
         
         if not verif_IP_address( IP_address_host):
-            return 
-        
-        # pinger le pc host
-        
-        if not ping_until_answer(IP_address_host):
             return 
         
         # verifier la validité de la CLI et du XRCenter
@@ -432,12 +478,18 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         sleep(10) 
         
-        # en premier lieu, on regarde les versions
+        # en premier lieu, on regarde si le wake_on_lan est actif
+        
+        wake_on_lan = get_wake_on_lan(client_socket, wake_on_lan)
+                
+        wake_on_lan_activated  = is_wake_on_lan_activated(wake_on_lan)          # on verifie si le wake on lan est activé
+        
+        # On regarde les versions
         
         server_CLI_version = get_server_CLI_version(client_socket, server_CLI_version)
         
         if server_CLI_version != CLI_version:
-            logger.info('Warning : your server and your current computer dont have have the same CLI version. It can be a source of error')
+            logger.info('Warning : your server and your current computer dont have the same CLI version. It can be a source of error')
             
         sleep(3)
         
@@ -451,6 +503,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
             logger.info("error on mapping")
+            stop_program(wake_on_lan_activated)
             return
         
         # ensuite, on lui transfere l'ID du workspace
@@ -459,17 +512,17 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         if id_workspace == '':                  # on ferme le serveur si il y a une erreur 
             client_socket.close()
+            stop_program(wake_on_lan_activated)
             return 
         
         # effectuer les imports 
         
         logger.info('starting the import program')
+        
         while True:
             try: 
                if not use_data(client_socket, time_record, id_workspace, path_CLI_local):
                    break 
-            except KeyboardInterrupt:
-                client_socket.close()
             except socket.error as e:
                 logger.warning(f'there was a connexion issue "{e}"')
                 sleep(2)
@@ -481,6 +534,9 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         clear_XRCENTER_config_file(XRCENTER_initial_address)
         
         client_socket.close()
+        
+        stop_program(wake_on_lan_activated)
+        
         return
     
 

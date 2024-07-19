@@ -7,6 +7,7 @@ Created on Tue Jun 11 09:44:04 2024
 
 #serveur host 
 
+from struct import pack
 import argparse
 import openpyxl
 import socket 
@@ -17,15 +18,64 @@ import os
 import json 
 from datetime import datetime
 from subprocess import run
+
+from getpass import getpass
+
 # extensions de fichiers CAD pris en compte par SkyReal
 
 extensions = [".CATPart", ".CATProduct",".CGR","CATProcess",".model","3dxml",".plmxml",".jt", ".prt",".asm",".ifc",".sldprt",".sldasm",".stp", ".step",".stl",".iam",".ipt",".x_t",".dwg"]         
 ## certaines extensions sont en train d'être ajoutées : .fbx , .dgn . 
 
-IDLE_TIME_OUT = 300     # temps en secondes pour lequel le programme s'arrete
+IDLE_TIME_OUT = 1000     # temps en secondes pour lequel le programme s'arrete
 
 
 
+
+# Mapping du reseau
+
+def create_mapping_road(username, password, drive_letter, share_path):
+    
+    powershell_identification_orders= f"""
+    $user = '{username}'
+    $securePassword = '{password}'
+    $pass = ConvertTo-SecureString $securePassword -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential ($user, $pass)
+    Write-Output "credentials"
+    $credential
+    New-SMbGlobalMapping -RemotePath '{share_path}' -Credential $credential -LocalPath {drive_letter}
+    """
+    try:
+        powershell_command_1 = run([ "Powershell", "-Command",  powershell_identification_orders], capture_output=True, text=True)
+        print('This program mapped the repertory you asked for on the letter', drive_letter)
+    except Exception as e:
+        print("error :", e)
+        print(powershell_command_1.stderr)
+        return False
+    return True
+
+def correct_mapping_letter(drive_letter):
+    possible_letters = ['Z', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y']
+    for letter in possible_letters:
+        powershell_verification_orders = "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Name"
+        powershell_command_verif = run([ "Powershell", "-Command",  powershell_verification_orders], capture_output=True, text=True)
+        if letter not in powershell_command_verif.stdout:
+            drive_letter = letter
+    return  drive_letter
+
+
+def ask_password():
+    password = getpass("Password : ")                     # saisir le mot de passe en masquant les caractères
+    return password
+
+# nouveautes wake on lan
+
+
+
+def read_json(fichier_json):        # lit le fichier json et ajoute les adresses ip a celles pretes a travailler
+    with open('fichier_json', 'r') as j:
+        ip_list = json.load(j)
+    return ip_list
+    
 
 #   PARTIE SCAN D'UN DOSSIER MIS EN ARGUMENT
 
@@ -37,33 +87,37 @@ def verif_excel_filename(excel_filename):
     return False
 
 
-
-
-
 def verif_repertory(CAD_repertory):   # verifier que notre deuxieme argument est valide 
     if os.path.exists(CAD_repertory) == False:
-        print('The path of your repertory does not exists')
+        print('Either the path of your repertory does not exist, or you do not have permissions to access it ')
         return False 
     if os.path.isdir(CAD_repertory) == False and  os.path.isfile(CAD_repertory) == False: 
         return False
     print('Your repertory seems correct and will be scanned ')
     return True
 
-
 def get_config_files_datas(path_CLI_local, JSON_file ):
     if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
         print('Your json file has been properly exploited')     
     else :
-        print("This is not a json file")
+        print(" Your json file is not a json")
         return None
     file = open(JSON_file, 'r')
     config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
-    path_CLI_local = config_files_dictionnaire["adresse_cli"] 
+    path_CLI_local = config_files_dictionnaire["path_cli"] 
     if (path_CLI_local == None): 
         print(' ADRESSE_XRCENTER is missing in the config file.')
         return None
     return path_CLI_local
 
+def more_config_file_datas(share_path, JSON_file):      # a executer apres  get_config_files_datas
+    with open(JSON_file, 'r') as file: 
+        config_files_dictionnaire = json.load(file)   
+        share_path = config_files_dictionnaire["share_path"]     
+    if share_path == '' or  share_path == 'value_to_fill':
+        print(' the share path must be \\\\"IP_address"\\"share_name", dont forget to double your backslashes as you are working with a json')
+    file.close()
+    return share_path
 
 def verif_CLI(path_CLI_local):
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
@@ -78,7 +132,7 @@ def verif_CLI(path_CLI_local):
 
 def creation_workspace_deck(save_id_workspace, path_CLI_local):
     workspace_json={}
-    print('A new workspace is created for your CAD files in your Deck')
+    print('A new workspace is created for your CAD files')
     date = datetime.now().strftime("%Y-%m-%d %H:%M")                    ## le nom du workspace correspond à la date de sa création 
     creation_workspace= f'& "{path_CLI_local}" workspace create --name workspace_"{date}"'
     nouveau_workspace= run(["Powershell", "-Command", creation_workspace], capture_output=True, text=True)
@@ -102,7 +156,7 @@ def find_files(file_list, CAD_repertory):   # fonction intermediaire
 def scan_CAD(file_list, fichiers_CAD, CAD_repertory ):
     find_files(file_list, CAD_repertory)
     if file_list == [] :                                               # Le dossier est vide 
-        print('The repertory is empty')
+        print('This repertory is empty') 
         return False
     else: 
         for k in range(0,len(file_list)):
@@ -122,7 +176,8 @@ def results_in_excel( result_dictionary, excel_filename, client_state):
             return 
     else:
         try:
-            workbook = openpyxl.load_workbook(excel_filename)
+            full_path =  os.path.join('C:\ProgramData\cli_automation_importer', excel_filename)
+            workbook = openpyxl.load_workbook(full_path)
         except FileNotFoundError:
             workbook = openpyxl.Workbook()
             default_sheet = workbook.active                                 # si le classeur est nouveau, on enleve la feuille par defaut
@@ -133,52 +188,84 @@ def results_in_excel( result_dictionary, excel_filename, client_state):
         for row_index, (key, value) in enumerate(result_list, start=1):
             sheet.cell(row=row_index, column=1, value=key)
             sheet.cell(row=row_index, column=2, value=value)
-        workbook.save(excel_filename)
+        workbook.save(full_path)
         print(f'Results have been successfully saved to {excel_filename}')
     return 
 
 
-# PARTIE CREATION DU SERVEUR 
+def check_CLI_version(path_CLI_local, CLI_version):
+    powershell_command_cli_version = f'''
+    & '{path_CLI_local}' --version
+    '''
+    powershell_check_CLI = run(["Powershell", "-Command", powershell_command_cli_version], capture_output=True, text=True)
+    for caracters in powershell_check_CLI.stdout:
+        if caracters == '-':
+            break
+        else: 
+            CLI_version += caracters
+    return CLI_version
+
+
+# PARTIE SERVEUR 
+
+def send_CLI_version(client_socket, CLI_version):
+    CLI_version_bytes=  CLI_version.encode('utf-8')
+    message_length = pack('!I', len(CLI_version_bytes))
+    client_socket.sendall(message_length + CLI_version_bytes)
+    return 
+
 
 def send_workspace_id(client_socket, save_id_workspace):
     save_id_workspace_bytes=  save_id_workspace.encode('utf-8')
-    client_socket.send(save_id_workspace_bytes)
+    message_length = pack('!I', len(save_id_workspace_bytes))
+    client_socket.sendall(message_length + save_id_workspace_bytes)
+    return 
+
+def send_mapping_username(client_socket, mapping_username):
+    mapping_username_bytes=  mapping_username.encode('utf-8')
+    message_length = pack('!I', len(mapping_username_bytes))
+    client_socket.sendall(message_length + mapping_username_bytes)
+    return 
+    
+def send_mapping_password(client_socket, mapping_password):
+    mapping_password_bytes=  mapping_password.encode('utf-8')
+    message_length = pack('!I', len(mapping_password_bytes))
+    client_socket.sendall(message_length + mapping_password_bytes)
     return 
     
 
-def handle_clients(client_addresses, client_address, new_client_socket, client_state):
-    if client_address[0] not in client_addresses:       # l'adresse ip du client n'est pas présente dans la liste
-        client_addresses.add(client_address[0])
-        client_state[new_client_socket] = 'ready'      #on initialise le client comme prêt a travailler
-        print(f'the connexion with "{client_address[0]}" started' )
-    else:
-        if new_client_socket in client_state:
-            print(f'the client "{client_address[0]}" is already connected, you can close this window') 
-        else:
-            print('there was a connexion error, your computer will try again to import CAD files')              # on va remettre tous les parametres a 0
-            client_state[new_client_socket] = 'ready'
-    return
-    
-def accept_connexions(serversocket, client_addresses, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy) :           # gerera les erreurs plus 
+def accept_connexions(serversocket, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy, mapping_username, mapping_password, CLI_version) :        
     while len(fichiers_CAD) > 0 and new_clients_counter[0] < len(fichiers_CAD_copy):           # condition d'arret du thread
         try:
-            (new_client_socket, client_address) = serversocket.accept()   #pour accepter la connexion de clients    
+            (new_client_socket, client_address) = serversocket.accept()   #pour accepter la connexion de clients  
             new_clients_counter[0] += 1
+            send_CLI_version(new_client_socket, CLI_version)
+            sleep(2)
+            send_mapping_username(new_client_socket, mapping_username)
+            sleep(2)
+            send_mapping_password(new_client_socket, mapping_password)
+            sleep(2)
             send_workspace_id(new_client_socket, save_id_workspace)
-            handle_clients(client_addresses, client_address, new_client_socket, client_state)# on les repertorie 
-            print(' the workspace id was sent')
-            sleep(3)
+            client_state[new_client_socket] = 'initialized'      #on initialise le premier client (sinon stack overflow)
+            print(f' the workspace id was sent to {client_address[0]}')
+            sleep(2)
         except socket.error as err:         #gerer les erreurs propres a la connexion des sockets 
             print(f"Socket error: {err}")
         except Exception as e:              # gerer les autres erreurs
             print(f"An unexpected error occurred while getting a new client: {e}")   
     return 
     
+    
 
+    
 def computer_in_work(fichiers_CAD, working_list, client_state, result_dictionary): 
     clients_list = client_state.keys()              # liste des elements du dictionnaire
     while True:
         if len(clients_list)>0:         # on verifie qu'il y en a au moins un a etudier
+            for keys in clients_list:
+                if client_state[keys] == 'initialized':
+                    sleep(5)
+                    client_state[keys] ='ready'
             clients_list_readable, client_list_writeable, client_error = select(clients_list, clients_list, clients_list, 10)    # methode non bloquante 
             if client_error != []:                                                                                               #gerer les erreurs
                 for client_socket in client_error:
@@ -189,18 +276,18 @@ def computer_in_work(fichiers_CAD, working_list, client_state, result_dictionary
                     clients_list.remove(client_socket)                                                                           #on enleve le socket problematique 
                     client_socket.close()                                                                                        # on ferme le socket
             if client_list_writeable != []:                                                                                      # ces client sont prêt à recevoir des infos
-                    for client_sockets in client_list_writeable:
-                        if len(fichiers_CAD) >0 :
-                            if client_state[client_sockets] == 'ready':
-                                file_to_send = fichiers_CAD.pop(0)                                                               # on prend le nouveau premier element de fichiers cad
-                                file_to_send_bytes= file_to_send.encode('utf-8')                                                 # il faut envoyer le fichier en binaire
-                                client_sockets.sendall(file_to_send_bytes)                                                       # on envoie le fichier au client dispo 
-                                result_dictionary[file_to_send] = client_sockets                                                 # le path est en premier lieu associé au client
-                                print(f'sending "{file_to_send}"')
-                                client_state[client_sockets] = 'working'                                                         # ils ne sont plus pret
-                                working_list.append(client_sockets)            
-                                sleep(1)
-        sleep(0.5)                                                                                                               # pas reelement necessaire mais c'est pour eviter un nombre trop important de boucles inutiles
+                for client_sockets in client_list_writeable:
+                    if len(fichiers_CAD) >0 :
+                        if client_state[client_sockets] == 'ready':
+                            file_to_send = fichiers_CAD.pop(0)                                                               # on prend le nouveau premier element de fichiers cad
+                            file_to_send_bytes= file_to_send.encode('utf-8')                                                 # il faut envoyer le fichier en binaire
+                            client_sockets.sendall(file_to_send_bytes)                                                       # on envoie le fichier au client dispo 
+                            result_dictionary[file_to_send] = client_sockets                                                 # le path est en premier lieu associé au client
+                            print(f'sending "{file_to_send}"')
+                            client_state[client_sockets] = 'working'                                                         # ils ne sont plus pret
+                            working_list.append(client_sockets)            
+                            sleep(1)
+        sleep(1)                                                                                                               # pas reelement necessaire mais c'est pour eviter un nombre trop important de boucles inutiles
     return 
 
     
@@ -253,16 +340,15 @@ def reception(working_list, client_state, fichiers_CAD_copy, result_dictionary, 
                             
     return
 
-
-def threading_in_progress(serversocket, client_addresses, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter):
+def threading_in_progress(serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version):
     
-    accept_thread = Thread(target = accept_connexions, args=(serversocket, client_addresses, fichiers_CAD, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy), daemon = True)          #on verifie en permanence si il y a une adresse dispo
+    accept_thread = Thread(target = accept_connexions, args=(serversocket, fichiers_CAD_copy, client_state, save_id_workspace, new_clients_counter, fichiers_CAD_copy, mapping_username, mapping_password, CLI_version), daemon = True)          #on verifie en permanence si il y a une adresse dispo
     accept_thread.start()
     
-    send_thread = Thread(target = computer_in_work, args= (fichiers_CAD , working_list, client_state, result_dictionary), daemon = True )
+    send_thread = Thread(target = computer_in_work, args= (fichiers_CAD , working_list, client_state, result_dictionary), daemon = True)
     send_thread.start()    
     
-    reception_thread = Thread(target = reception , args= (working_list, client_state, fichiers_CAD_copy, result_dictionary, number_of_received_import), daemon = True )
+    reception_thread = Thread(target = reception , args= (working_list, client_state, fichiers_CAD_copy, result_dictionary, number_of_received_import), daemon = True)
     reception_thread.start()
     
     return accept_thread,send_thread, reception_thread
@@ -282,71 +368,50 @@ def closing_clients(client_state):
         kill_clients.sendall(closing_message_byte)      
     return
      
-# WAKE ON LAN
-
-# on va enregistrer dans un fichier json les informations nécessaires, à savoir les adresses ip 
-
-def verify_json_with_ip(json_with_ip, client_addresses):
-    client_adresses_list = list(client_addresses)
-    if len(client_adresses_list)  == 0:
-        print('no ip adresses were provided for next updates')
-        return 
-    if os.path.exists(json_with_ip):                                          # si le fichier existe
-        if json_with_ip.lower().endswith('.json'):
-            ip_file = open(json_with_ip, 'r+',encoding='utf-8')                   # on ouvre le fichier et on va ecrire a la fin 
-            try:
-                data = json.load(ip_file)                                         # on charge les données, dans notre cas ca sera sous forme de liste
-            except json.JSONDecodeError:
-                data = []
-            for ip_addresses in client_adresses_list:
-                if ip_addresses not in data:
-                    data.append(ip_addresses)
-            ip_file.seek(0)                                                                       # se placer au debut du fichier                       
-            json.dump(data, ip_file, ensure_ascii=False, indent=4)                                # ecrire dans le dossier les donnees
-            ip_file.truncate()                                                                    # tronquer ce qu'il y a apres le curseur
-    else:
-        ip_file = open(json_with_ip, 'w',encoding='utf-8')
-        json.dump(client_adresses_list, ip_file, ensure_ascii=False, indent=4)            
-    print('for futur updates, your clients were saved in the json you specified')
-    return    
 
 def main():  
     
-    
     # informations sur les arguments de la fonction
     
-    parser = argparse.ArgumentParser(description = 'Process the arguments')                     # va gerer les differents arguments
-    parser.add_argument('--excel_filename', type = str, help = 'name of your excel file. If not specified, the results will be put in a file name "results_import_CAD"')  #le nom du fichier excel
+    parser = argparse.ArgumentParser(description = 'Process the three arguments')                     # va gerer les differents arguments
+    parser.add_argument('--excel_filename', type = str, help = 'name of your excel file. If not specified, the results will be put in a file named "results_import_CAD"')  #le nom du fichier excel
     parser.add_argument('--rep', type = str, help = 'name of your repertory containing the CAD files.', required= True)
-    parser.add_argument('--config_file', type = str, help = 'name of your json containing the informations required to make the program work.', required= True)
-    parser.add_argument('--json_ip', type = str, help = 'name of your json containing the ip adresses of the clients when the program ends.')
     args = parser.parse_args()  # parcourir les differents arguments
     
     excel_filename = args.excel_filename if args.excel_filename else 'results_import_CAD.xlsx'              # nom du fichier excel
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
-    JSON_file = args.config_file 
-    json_with_ip = args.json_ip if args.json_ip else 'ip.json'
+    JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
+    
+    
     
     # vérification sur les arguments de la fonction
     
-    if not verif_repertory(CAD_repertory):
-        return
-    
     if not verif_excel_filename(excel_filename):
-        print('error : the extension of your excel filename must belong the the following ones : .xlsx, .xlsm, .xltx,.xltm' )
+        print('error : the extension of your excel filename must belong to the following ones : .xlsx, .xlsm, .xltx,.xltm' )
         return 
+        
+
     # variables nécessaires pour la partie scan et infos
     
+        # variable nécessaires au mapping 
+        
+    mapping_username= input("domain , username:")
+    mapping_password = ask_password() 
+    share_path = ''
+    drive_letter = 'Z'
+    
+        # scan 
+        
     file_list=[]
     path_CLI_local = None
     save_id_workspace=''     
+    CLI_version = ''
     
     # initialisation des variables necessaires au serveur 
     
     global IDLE_TIME_OUT
     
     fichiers_CAD = []
-    client_addresses=  set()  #ensemble non ordonnées d'elements, on va s'en servir pour être sur qu'un serveur client ne s'enregistre pas 2 fois 
     working_list = []
     client_state = {}
     timer = 0
@@ -354,12 +419,15 @@ def main():
     new_clients_counter = [0]
     
     
+    # verif sur le mapping
     
-    
+    if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
+        return
     
     # infos et vérifications sur la CLI 
-    
+
     path_CLI_local= get_config_files_datas(path_CLI_local, JSON_file)
+    
     if  path_CLI_local== None:
         print("error while trying to read config file")
         return
@@ -367,16 +435,12 @@ def main():
     if not verif_CLI(path_CLI_local):            # on arrete le programme en cas d'erreur 
         return 
     
-    # creation du workspace et vérifications 
-    
-    save_id_workspace= creation_workspace_deck(save_id_workspace, path_CLI_local)       # on va passer ce workspace aux clients
-    
-    if save_id_workspace== None  or save_id_workspace== '':                         # mais seulement si il est valable 
-        print( 'error in the workspace creation')
-        return
-    
+    CLI_version= check_CLI_version(path_CLI_local, CLI_version)
     
     # scan du dossier 
+    
+    if not verif_repertory(CAD_repertory):          # on verifie que notre repertoire est valide 
+        return
     
     if not scan_CAD(file_list, fichiers_CAD, CAD_repertory) :
         return
@@ -384,19 +448,35 @@ def main():
     fichiers_CAD_copy = list(fichiers_CAD) # copie pour la condition
     result_dictionary = {path : 0 for path in fichiers_CAD}         # a la fin, pour que chaque path soit associe a son temps d'import
     
+    
+
+    # creation du workspace et vérifications 
+    
+    save_id_workspace= creation_workspace_deck(save_id_workspace, path_CLI_local)       # on va passer ce workspace aux clients
+    
+    if save_id_workspace== None  or save_id_workspace== '':                         # mais seulement si il est valable 
+        print( 'error in the workspace creation')
+        return
+    else:
+        print('your workspace id is :', save_id_workspace)
     # creation du serveur
+    
     
     serversocket= socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serversocket.bind(( socket.gethostbyname(socket.gethostname()), 3000) )        
     serversocket.listen()
-    print('host server is starting \nwaiting for a first client')
     
+    # for clients in ip_list:
+    #     computer_wake_up(clients)
+    
+    
+
     try:
-        accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, client_addresses, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter)  
+        accept_thread, send_thread, reception_thread = threading_in_progress( serversocket, fichiers_CAD, working_list, client_state, save_id_workspace, fichiers_CAD_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version)  
     except KeyboardInterrupt:
         for clients in client_state.keys():
             clients.close()
-            serversocket.close()
+        serversocket.close()
     
     while timer < IDLE_TIME_OUT and number_of_received_import[0] < len( fichiers_CAD_copy ):
         if len(client_state) != 0:
@@ -408,25 +488,15 @@ def main():
             timer += 5
     
     closing_thread(accept_thread, send_thread, reception_thread)
-    
-    results_in_excel( result_dictionary, excel_filename, client_state )
-    verify_json_with_ip(json_with_ip, client_addresses)
-    
+        
     closing_clients(client_state)   
     
-    serversocket.close()
+    results_in_excel( result_dictionary, excel_filename, client_state )
     
+    serversocket.close()
     
     return 
    
     
 main()       
-
-
-
-
-
-
-
-
 
