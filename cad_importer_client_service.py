@@ -46,6 +46,15 @@ logging.basicConfig(
 logger = logging.getLogger('logger')        #initialisation du logger
 
 
+
+def copy_file( source, destination):
+    with open(source, 'r') as source_file:
+        content = source_file.read()
+        
+    with open(destination, 'w') as destination_file:
+        destination_file.write(content)
+    return
+               
 # Mapping du reseau
 
 def create_mapping_road(username, password, drive_letter, share_path):
@@ -79,15 +88,7 @@ def stop_program(wake_on_lan_activated):
     return 
         
         
-        
-        
-        
 def get_config_files_datas(path_CLI_local, JSON_file ):
-    if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
-        pass 
-    else :
-        logger.info("The config file is not a json file")
-        return None
     file = open(JSON_file, 'r')
     config_files_dictionnaire = load(file)                                     #on convertit le json en dictionnaire 
     path_CLI_local = config_files_dictionnaire["path_cli"] 
@@ -112,26 +113,26 @@ def more_config_file_datas(share_path, JSON_file):      # a executer apres  get_
 def always_more_config_file_datas(JSON_file): 
     xrcenter_config_file = "C:\\ProgramData\\Skydea\\xrcenter-cmd\\xrcenter-cmd.json"           # propre a skyreal
     try:
-        with open(JSON_file, 'r') as file: 
+        with open(JSON_file, 'r') as file:                                                      # on prend la valeur du XRCenter référencé
             config_files_dictionary = load(file)   
-            ip_address_XRCENTER = config_files_dictionary["ip_address_XRCENTER"]  
+            new_XRCENTER_address = config_files_dictionary["XRCENTER"]  
             file.close()
-    except Exception as e:
-        logger.info(e)
+    except Exception as e:                                                                     
+        print(e)
         return ''
     try:
-        with open(xrcenter_config_file, 'r') as xrcenter_file:
+        with open(xrcenter_config_file, 'r') as xrcenter_file:                                  # on prend la valeur précédente du XRCenter 
             xrcenter_dictionary = load(xrcenter_file)
-            base_address = xrcenter_dictionary["XRCenter"]["BaseAddress"]
-            new_base_address = f'https://{ip_address_XRCENTER}:9228/'
+            base_address = xrcenter_dictionary["XRCenter"]["BaseAddress"]                       # on save l'ancienne valeur
         xrcenter_file.close()
-        with open(xrcenter_config_file, 'w') as xrcenter_file_reopened:
+        with open(xrcenter_config_file, 'w') as xrcenter_file_reopened:                         # on écrit la nouvelle valeur
+            new_base_address = f'{new_XRCENTER_address}'           
             xrcenter_dictionary["XRCenter"]["BaseAddress"] = new_base_address
             dump(xrcenter_dictionary, xrcenter_file_reopened, indent=4)
         xrcenter_file_reopened.close()
     except Exception as e:
-        logger.info(e)
-        return ''
+        print(e)
+        return ''                                                                               # si il y a un bug dans ce config file, ce qui n'est pas censé arriver
     return base_address
 
 def clear_XRCENTER_config_file(base_address):
@@ -169,7 +170,7 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
     import_final = run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
     end = time()
     time_record= end - start                                                                           # on mesure le temps de chaque import
-    if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower():
+    if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower() or import_final.returncode != 0 :
             logger.info(f' \n the file "{file}" can not be put in SkyReal \n ')   
             time_record= -1             # l'import a echoue
     else:
@@ -229,7 +230,6 @@ def ping_until_answer(ip_address, ping_result):
             return ping_result 
         else:
             powershell_ping_result = run(['ping', '-c', '1', ip_address], capture_output=True, text=True)
-            
             if powershell_ping_result.returncode == 0:
                 logger.info('the client just reached the host computer ( ping command was successful ) ')
                 ping_result = True 
@@ -345,37 +345,40 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
     # ce que le serveur doit faire
         check_existence = Path(file_to_receive)
         if not check_existence.exists():                           # On considere que si un seul fichiers n'est pas present sur le pc, le repertoire n existe pas du tout et on ferme ce client
-            logger.warning('the CAD file can not be found on this computer. You must be able to access it. This client will close') 
-            return False
-        
-        time_record = import_CAD_file(time_record, id_workspace, path_CLI_local, file_to_receive)
+            logger.warning('the CAD file can not be found (do you have the access?') 
+            time_record= -2 
+        else:
+            time_record = import_CAD_file(time_record, id_workspace, path_CLI_local, file_to_receive)
         
     # envoyer les resultats
+    
         time_record_byte = str(time_record).encode()          # on traduit le float en chaine de caractere que l'on met en bytes
         client_socket.send(time_record_byte)
+        
     except KeyboardInterrupt:
         return False
     return True
         
 
-def verif_connexion_to_host(client_socket, adress_host, ip_address, path_CLI_local):
+def verif_connexion_to_host(client_socket, adress_host, IP_address_host, path_CLI_local, JSON_file):
     connected = False
     ping_result = False 
     while not ping_result or not connected :        # pinger le pc puis voir si il arrive à se connecter
         if not ping_result:
-            ping_result = ping_until_answer(ip_address, ping_result)
-            if not verif_CLI(path_CLI_local):                   # si la CLI n'est pas bonne, on arrete le programme
-                logger.info('Failed to connect') 
-                return False     
-        else:                                                   # on a reussi a pinger, il reste a se connecter
-            try:
-                client_socket.connect(adress_host)        # si le serveur est bien connecté   
-                logger.info('the client was successfuly connected')
-                connected = True        # je considere que si il a reussi à etablir la connexion, il arrivera à se connecter au bout d'un moment
-            except socket.error:
-               sleep(5)
-               logger.info('waiting for a host server')
-    return True 
+            ping_result = ping_until_answer(IP_address_host, ping_result)   
+        else:
+            if not verif_CLI(path_CLI_local):                                                   # on a reussi a pinger, il reste a se connecter
+                path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )
+                sleep(10)
+            else:  
+                try:
+                    client_socket.connect(adress_host)        # si le serveur est bien connecté   
+                    logger.info('the client was successfuly connected')
+                    connected = True        # je considere que si il a reussi à etablir la connexion, il arrivera à se connecter au bout d'un moment
+                except socket.error:
+                   sleep(5)
+                   logger.info('waiting for a host server')
+    return  
 
 
 
@@ -473,8 +476,8 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         adress_host= (IP_address_host, 3000)      # l'adresse du serveur host
         
         
-        if verif_connexion_to_host(client_socket, adress_host) == False:          # verifier si on est bien connecté sinon attendre
-            return 
+        verif_connexion_to_host(client_socket, adress_host, IP_address_host, path_CLI_local, JSON_file)         # verifier si on est bien connecté sinon attendre
+        
         
         sleep(10) 
         
@@ -534,6 +537,13 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         clear_XRCENTER_config_file(XRCENTER_initial_address)
         
         client_socket.close()
+        
+        
+        log_directory = r'C:\ProgramData\cli_automation_importer'
+        log_file_path = os.path.join(log_directory, 'current_report.log')
+        new_log_file_path = os.path.join(log_directory, 'previous_report.log')
+        
+        copy_file(log_file_path, new_log_file_path)
         
         stop_program(wake_on_lan_activated)
         

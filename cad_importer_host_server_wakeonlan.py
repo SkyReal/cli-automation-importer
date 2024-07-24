@@ -20,12 +20,12 @@ from datetime import datetime
 from subprocess import run
 from wakeonlan import send_magic_packet
 
+from json import dump
+from json import load 
+
 from getpass import getpass
 
 # extensions de fichiers CAD pris en compte par SkyReal
-
-extensions = [".CATPart", ".CATProduct",".CGR","CATProcess",".model","3dxml",".plmxml",".jt", ".prt",".asm",".ifc",".sldprt",".sldasm",".stp", ".step",".stl",".iam",".ipt",".x_t",".dwg"]         
-## certaines extensions sont en train d'être ajoutées : .fbx , .dgn . 
 
 IDLE_TIME_OUT = 1000     # temps en secondes pour lequel le programme s'arrete
 
@@ -68,12 +68,6 @@ def ask_password():
     password = getpass("Password : ")                     # saisir le mot de passe en masquant les caractères
     return password
 
-# nouveautes wake on lan
-
-def computer_wake_up(mac_address):           # marche seulement si le pc est eteint 
-    send_magic_packet(mac_address)   # il faut que les adresses ip soient fixes
-    return
-
 
 def read_json(fichier_json):        # lit le fichier json et ajoute les adresses ip a celles pretes a travailler
     with open(fichier_json, 'r') as file:
@@ -85,7 +79,7 @@ def read_json(fichier_json):        # lit le fichier json et ajoute les adresses
 #   PARTIE SCAN D'UN DOSSIER MIS EN ARGUMENT
 
 def verif_excel_filename(excel_filename):
-    excel_extensions = ['.xlsx', '.xlsm', '.xltx','.xltm']
+    excel_extensions = ['.xlsx']
     for extensions in  excel_extensions:
         if excel_filename.lower().endswith(extensions):
             return True 
@@ -102,11 +96,6 @@ def verif_repertory(CAD_repertory):   # verifier que notre deuxieme argument est
     return True
 
 def get_config_files_datas(path_CLI_local, JSON_file ):
-    if JSON_file.lower().endswith('.json'):          # on vérifie qu'on nous donne un json
-        print('Your json file has been properly exploited')     
-    else :
-        print(" Your json file is not a json")
-        return None
     file = open(JSON_file, 'r')
     config_files_dictionnaire = json.load(file)                                     #on convertit le json en dictionnaire 
     path_CLI_local = config_files_dictionnaire["path_cli"] 
@@ -114,6 +103,59 @@ def get_config_files_datas(path_CLI_local, JSON_file ):
         print(' ADRESSE_XRCENTER is missing in the config file.')
         return None
     return path_CLI_local
+
+
+def always_more_config_file_datas(JSON_file): 
+    xrcenter_config_file = "C:\\ProgramData\\Skydea\\xrcenter-cmd\\xrcenter-cmd.json"           # propre a skyreal
+    try:
+        with open(JSON_file, 'r') as file:                                                      # on prend la valeur du XRCenter référencé
+            config_files_dictionary = load(file)   
+            new_XRCENTER_address = config_files_dictionary["XRCENTER"]  
+            file.close()
+    except Exception as e:                                                                     
+        print(e)
+        return ''
+    try:
+        with open(xrcenter_config_file, 'r') as xrcenter_file:                                  # on prend la valeur précédente du XRCenter 
+            xrcenter_dictionary = load(xrcenter_file)
+            base_address = xrcenter_dictionary["XRCenter"]["BaseAddress"]                       # on save l'ancienne valeur
+        xrcenter_file.close()
+        with open(xrcenter_config_file, 'w') as xrcenter_file_reopened:                         # on écrit la nouvelle valeur
+            new_base_address = f'{new_XRCENTER_address}'           
+            xrcenter_dictionary["XRCenter"]["BaseAddress"] = new_base_address
+            dump(xrcenter_dictionary, xrcenter_file_reopened, indent=4)
+        xrcenter_file_reopened.close()
+    except Exception as e:
+        print(e)
+        return ''                                                                               # si il y a un bug dans ce config file, ce qui n'est pas censé arriver
+    return base_address
+
+
+def get_extensions_from_config_file( JSON_file ):
+    with open(JSON_file, 'r') as file: 
+        config_files_dictionnaire = load(file)   
+        extensions_available = config_files_dictionnaire["extensions"]    
+    if extensions_available == []:
+        print('You have to put some extensions in the config files')
+    else:
+        for ext in extensions_available:
+            if not ext.startswith('.'):
+                return []
+    file.close()
+    return extensions_available
+    
+    
+def clear_XRCENTER_config_file(base_address):
+    xrcenter_config_file = "C:\\ProgramData\\Skydea\\xrcenter-cmd\\xrcenter-cmd.json"           # propre a skyreal
+    with open(xrcenter_config_file, 'r') as xrcenter_file:
+        xrcenter_dictionary = load(xrcenter_file)
+    xrcenter_file.close()
+    with open(xrcenter_config_file, 'w') as xrcenter_file_reopened:
+        xrcenter_dictionary["XRCenter"]["BaseAddress"] = base_address
+        dump(xrcenter_dictionary, xrcenter_file_reopened, indent=4)
+    xrcenter_file_reopened.close()
+    return
+
 
 def more_config_file_datas(share_path, JSON_file):      # a executer apres  get_config_files_datas
     with open(JSON_file, 'r') as file: 
@@ -158,7 +200,7 @@ def find_files(file_list, CAD_repertory):   # fonction intermediaire
     return 
 
 
-def scan_CAD(file_list, CAD_files, CAD_repertory ):
+def scan_CAD(file_list, CAD_files, CAD_repertory, extensions ):
     find_files(file_list, CAD_repertory)
     if file_list == [] :                                               # Le dossier est vide 
         print('This repertory is empty') 
@@ -167,34 +209,40 @@ def scan_CAD(file_list, CAD_files, CAD_repertory ):
         for k in range(0,len(file_list)):
             for i in range(0, len(extensions)):                             #on s'arrête s'il n'existe pas de fichers CAD
                 if file_list[k].lower().endswith(extensions[i].lower()) == True :      #c'est un dossier CAD, on regarde son extension en minuscule pour le rendre insensible a la casse
-                    CAD_files.append(file_list[k])
-                    break                                                   #on n'a pas besoin de regarder le reste des extensions
+                    if extensions[i].lower() == '.description':
+                        handle_description_files( file_list[k], CAD_files  )
+                        break
+                    else :
+                        CAD_files.append(file_list[k])
+                        break                                                   #on n'a pas besoin de regarder le reste des extensions
     if (CAD_files == []):                                                # il n'y avait pas de fichiers à traiter
         print('There was no CAD files in this repertory')
         return False 
     return True
 
 
-def results_in_excel( result_dictionary, excel_filename, client_state):
-    if len(client_state) == 0:
-            print('No results can be send in the excel file')
-            return 
-    else:
-        try:
-            full_path =  os.path.join('C:\ProgramData\cli_automation_importer', excel_filename)
-            workbook = openpyxl.load_workbook(full_path)
-        except FileNotFoundError:
-            workbook = openpyxl.Workbook()
-            default_sheet = workbook.active                                 # si le classeur est nouveau, on enleve la feuille par defaut
-            workbook.remove(default_sheet)
-        result_list = list(result_dictionary.items())
-        sheet_name = f'Sheet_{len(workbook.sheetnames)}'
-        sheet = workbook.create_sheet(title=sheet_name)
-        for row_index, (key, value) in enumerate(result_list, start=1):
-            sheet.cell(row=row_index, column=1, value=key)
-            sheet.cell(row=row_index, column=2, value=value)
-        workbook.save(full_path)
-        print(f'Results have been successfully saved to {excel_filename}')
+
+def create_excel(excel_filename):
+    try:
+        full_path =  os.path.join('C:\ProgramData\cli_automation_importer', excel_filename)
+        workbook = openpyxl.load_workbook(full_path)
+    except FileNotFoundError:
+        workbook = openpyxl.Workbook()
+        default_sheet = workbook.active                                 # si le classeur est nouveau, on enleve la feuille par defaut
+        workbook.remove(default_sheet)
+    sheet_name = f'Sheet_{len(workbook.sheetnames)}'
+    sheet = workbook.create_sheet(title=sheet_name)
+    return sheet, workbook  
+        
+        
+        
+def results_in_excel( path, time,  sheet, excel_filename, workbook ):
+    row_index = sheet.max_row + 1                        # on ecrit à la dernière colonne où il y a la place
+    sheet.cell(row=row_index, column=1, value=path)
+    sheet.cell(row=row_index, column=2, value=time)
+    full_path = os.path.join('C:\\ProgramData\\cli_automation_importer', excel_filename)
+    workbook.save(full_path)
+    print('Results have been successfully saved')
     return 
 
 
@@ -211,6 +259,26 @@ def check_CLI_version(path_CLI_local, CLI_version):
     return CLI_version
 
 
+def handle_description_files(file, cad_list):
+    file_content = ''
+    with open(file, 'r') as file_to_analyse:
+        file_content = file_to_analyse.read()
+    if 'xml' in file_content:
+        return
+    else: 
+        try: 
+            new_dictionary = json.loads(file_content)       # on fait devenir le .description, un fichier json en dictionnaire 
+            full_description_path = new_dictionary["SelfPath"]
+            product_name = new_dictionary["ProductFileName"] 
+            new_self_path = full_description_path.rsplit('\\', 1)[0] + '\\' + product_name
+            cad_list.append(new_self_path)
+        except Exception:
+            print(f'Your file {file} was not correct and will not be imported')
+            return 
+    return 
+        
+        
+        
 # PARTIE SERVEUR 
 
 def send_wake_on_lan(client_socket, wake_on_lan):
@@ -311,7 +379,7 @@ def computer_in_work(CAD_files, working_list, client_state, result_dictionary):
 
 
 
-def reception(working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import):
+def reception(working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import, excel_filename, sheet, workbook):
     while True:
         if len(client_state)>0:
             if working_list != []:
@@ -331,11 +399,16 @@ def reception(working_list, client_state, CAD_files_copy, result_dictionary, num
                             result_wait_float = float(result_wait)
                             for path in result_dictionary.keys():                                                               # on remplace les clients sockets par le timer recu apres l'import 
                                 if result_dictionary[path] == sleeping_clients:
-                                        result_dictionary[path] =  result_wait_float
+                                        result_dictionary[path] =  result_wait_float 
+                                        try:
+                                            results_in_excel(path, result_wait_float, sheet, excel_filename, workbook )
+                                        except KeyboardInterrupt:
+                                            results_in_excel(path, -2 , sheet, excel_filename, workbook )
+                                        break 
                             number_of_received_import[0] +=1
                             client_state[sleeping_clients] = 'ready'    
                             working_list.remove(sleeping_clients)
-                            print('the result of the import was acquired')
+                            print('the result of the import was acquired')                            
                             print( number_of_received_import[0],'/', len(CAD_files_copy))
                         except socket.error:
                             print('Error while getting a client response')
@@ -359,15 +432,15 @@ def reception(working_list, client_state, CAD_files_copy, result_dictionary, num
 
 
 
-def wake_on_lan(mac_addresses, wake_on_lan):
+def start_wake_on_lan(mac_addresses, wake_on_lan):
     if wake_on_lan:
-        for clients in mac_addresses:
-            computer_wake_up(clients)           # on reveille chacun des pc spécifiés
+        for key, values in mac_addresses.items():
+            send_magic_packet(values)           # on reveille chacun des pc spécifiés
             sleep(180)                          # on attend 3 min entre chacun des pcs allumés  
     return 
 
 
-def threading_in_progress(serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan):
+def threading_in_progress(serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan, excel_filename,  sheet, workbook):
     
     accept_thread = Thread(target = accept_connexions, args=(serversocket, CAD_files_copy, client_state, save_id_workspace, new_clients_counter, CAD_files_copy, mapping_username, mapping_password, CLI_version, wake_on_lan), daemon = True)          #on verifie en permanence si il y a une adresse dispo
     accept_thread.start()
@@ -375,10 +448,10 @@ def threading_in_progress(serversocket, CAD_files, working_list, client_state, s
     send_thread = Thread(target = computer_in_work, args= (CAD_files , working_list, client_state, result_dictionary), daemon = True)
     send_thread.start()    
     
-    reception_thread = Thread(target = reception , args= (working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import), daemon = True)
+    reception_thread = Thread(target = reception , args= (working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import, excel_filename,  sheet, workbook), daemon = True)
     reception_thread.start()
     
-    WOL_thread = Thread(target = wake_on_lan , args= (mac_addresses, wake_on_lan) , daemon = True)
+    WOL_thread = Thread(target = start_wake_on_lan , args= (mac_addresses, wake_on_lan) , daemon = True)
     WOL_thread.start()
     
     return accept_thread,send_thread, reception_thread, WOL_thread
@@ -404,11 +477,13 @@ def main():
     
     # informations sur les arguments de la fonction
     
-    parser = argparse.ArgumentParser(description = 'Process the three arguments')                     # va gerer les differents arguments
+    parser = argparse.ArgumentParser(description = 'Process the arguments')                     # va gerer les differents arguments
     parser.add_argument('--excel_filename', type = str, help = 'name of your excel file. If not specified, the results will be put in a file named "results_import_CAD"')  #le nom du fichier excel
     parser.add_argument('--rep', type = str, help = 'name of your repertory containing the CAD files.', required= True)
     parser.add_argument('--json_mac', type = str, help = 'name of your json containing the mac adresses of the clients when the program ends.')
-    parser.add_argument('--W', type = bool , help = 'enable WakeOnLan or disable it (True/False) ')  #le nom du fichier excel
+    parser.add_argument('-W', type = bool , help = 'enable WakeOnLan or disable it (True/False) ')  #le nom du fichier excel
+    parser.add_argument('--id_workspace', type = str , help = 'import in a specified workspace ')  #le nom du fichier excel
+
 
     args = parser.parse_args()  # parcourir les differents arguments
     
@@ -416,18 +491,19 @@ def main():
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
     JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
     wake_on_lan = args.W if args.W else False                                           # de base le wake on lan n'est pas actif 
-    json_with_mac = args.json_ip if args.json_ip else 'ip.json'
-    
+    json_with_mac = args.json_mac if args.json_mac else 'mac_addresses.json'
+    save_id_workspace =  args.id_workspace if args.id_workspace else ''
     
     # vérification sur les arguments de la fonction
     
     if not verif_excel_filename(excel_filename):
-        print('error : the extension of your excel filename must belong to the following ones : .xlsx, .xlsm, .xltx,.xltm' )
+        print('error : the extension of your excel filename must be : .xlsx' )
         return 
     
     if wake_on_lan:
         mac_addresses = read_json(json_with_mac)
-    
+    else:
+        mac_addresses = ''
 
     # variables nécessaires pour la partie scan et infos
     
@@ -437,12 +513,12 @@ def main():
     mapping_password = ask_password() 
     share_path = ''
     drive_letter = 'Z'
+    base_address = ''                   #   adresse du XRCenter de base avant le programme
     
         # scan 
         
     file_list=[]
-    path_CLI_local = None
-    save_id_workspace=''     
+    path_CLI_local = None  
     CLI_version = ''
     
     # initialisation des variables necessaires au serveur 
@@ -461,9 +537,20 @@ def main():
     if not create_mapping_road(mapping_username, mapping_password ,drive_letter, share_path):
         return
     
-    # infos et vérifications sur la CLI 
+   
+    # données du config file
 
     path_CLI_local= get_config_files_datas(path_CLI_local, JSON_file)
+    base_address = always_more_config_file_datas(JSON_file)
+    extensions_available =  get_extensions_from_config_file( JSON_file )
+    
+    # verifications sur les extensions 
+
+    if extensions_available == []:
+        print('your extensions are incorrect or not supported by SkyReal')
+        return 
+    
+    # infos et vérifications sur la CLI 
     
     if  path_CLI_local== None:
         print("error while trying to read config file")
@@ -479,7 +566,7 @@ def main():
     if not verif_repertory(CAD_repertory):          # on verifie que notre repertoire est valide 
         return
     
-    if not scan_CAD(file_list, CAD_files, CAD_repertory) :
+    if not scan_CAD(file_list, CAD_files, CAD_repertory, extensions_available ) :
         return
     
     CAD_files_copy = list(CAD_files) # copie pour la condition
@@ -488,14 +575,15 @@ def main():
     
 
     # creation du workspace et vérifications 
-    
-    save_id_workspace= creation_workspace_deck(save_id_workspace, path_CLI_local)       # on va passer ce workspace aux clients
+    if save_id_workspace == '':
+        save_id_workspace= creation_workspace_deck(save_id_workspace, path_CLI_local)       # on va passer ce workspace aux clients
     
     if save_id_workspace== None  or save_id_workspace== '':                         # mais seulement si il est valable 
         print( 'error in the workspace creation')
         return
     else:
         print('your workspace id is :', save_id_workspace)
+    
     # creation du serveur
     
     
@@ -504,10 +592,11 @@ def main():
     serversocket.listen()
     
 
+    sheet, workbook = create_excel(excel_filename)
     
-
+    
     try:
-        accept_thread, send_thread, reception_thread, WOL_thread = threading_in_progress( serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan)  
+        accept_thread, send_thread, reception_thread, WOL_thread = threading_in_progress( serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan, excel_filename,  sheet, workbook)  
     except KeyboardInterrupt:
         for clients in client_state.keys():
             clients.close()
@@ -525,7 +614,7 @@ def main():
         
     closing_clients(client_state)   
     
-    results_in_excel( result_dictionary, excel_filename, client_state )
+    clear_XRCENTER_config_file(base_address)
     
     serversocket.close()
     

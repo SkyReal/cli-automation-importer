@@ -28,11 +28,13 @@ def create_config_file(config_file_path):
             "path_cli": "C:\\SkyRealSuite\\1.18\\XRCenterCLI\\Skr.XRCenter.Cmd.exe",
             "ip_address_server": "value_to_fill",
             "share_path": "value_to_fill",
-            "ip_address_XRCENTER": "value_to_fill"
-        }
+            "XRCENTER": "https://ip_adress:port/",
+            "extensions": [".description", ".CATPart", ".CATProduct", ".CGR", "CATProcess", ".model", "3dxml", ".plmxml", ".jt", ".prt", ".asm", ".ifc", ".sldprt", ".sldasm", ".stp", ".step", ".stl", ".iam", ".ipt", ".x_t", ".dwg"]
+            }
         with open(config_file_path, 'w') as file:
              json.dump(cad_importer_config_file, file, indent=4)            # on cree le config file
     return
+
 
 def does_importer_exe_exists(service_program):
     if not os.path.exists(service_program):
@@ -51,7 +53,16 @@ def install_service(service_program):
         print('your windows service was created and will be active next time you turn on your computer')
         return True
     else:
-        print("error :", powershell_install.stderr )
+        try:
+            powershell_delete_command = '''
+            sc.exe delete "cad_importer_client"
+            '''
+            powershell_install = run([ "Powershell", "-Command",  powershell_delete_command], capture_output=True, text=True)
+        finally:
+                powershell_install = run([ "Powershell", "-Command",  powershell_install_command], capture_output=True, text=True)
+                if powershell_install.returncode == 0:
+                    print('your windows service was created and will be active next time you turn on your computer')
+                    return True
         return False 
 
 def main():
