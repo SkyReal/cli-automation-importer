@@ -491,7 +491,7 @@ def main():
     CAD_repertory =  args.rep                                                           # repertoire contenant les fichiers CAD
     JSON_file = "C:\ProgramData\cli_automation_importer\cad_importer_config_file.json"
     wake_on_lan = args.W if args.W else False                                           # de base le wake on lan n'est pas actif 
-    json_with_mac = args.json_mac if args.json_mac else 'mac_addresses.json'
+    json_with_mac = args.json_mac if args.json_mac else "C:\\ProgramData\\cli_automation_importer\\mac_addresses.json"
     save_id_workspace =  args.id_workspace if args.id_workspace else ''
     
     # vérification sur les arguments de la fonction
@@ -509,7 +509,7 @@ def main():
     
         # variable nécessaires au mapping 
         
-    mapping_username= input("username:")
+    mapping_username= input("username with domain name:")
     mapping_password = ask_password() 
     share_path = ''
     drive_letter = 'Z'

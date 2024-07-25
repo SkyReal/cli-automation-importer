@@ -229,7 +229,7 @@ def ping_until_answer(ip_address, ping_result):
             ping_result = True 
             return ping_result 
         else:
-            powershell_ping_result = run(['ping', '-c', '1', ip_address], capture_output=True, text=True)
+            powershell_ping_result = run(['ping', '-n', '1', ip_address], capture_output=True, text=True)
             if powershell_ping_result.returncode == 0:
                 logger.info('the client just reached the host computer ( ping command was successful ) ')
                 ping_result = True 
@@ -360,7 +360,7 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
     return True
         
 
-def verif_connexion_to_host(client_socket, adress_host, IP_address_host, path_CLI_local, JSON_file):
+def verif_connexion_to_host(client_socket, address_host, IP_address_host, path_CLI_local, JSON_file):
     connected = False
     ping_result = False 
     while not ping_result or not connected :        # pinger le pc puis voir si il arrive à se connecter
@@ -372,7 +372,7 @@ def verif_connexion_to_host(client_socket, adress_host, IP_address_host, path_CL
                 sleep(10)
             else:  
                 try:
-                    client_socket.connect(adress_host)        # si le serveur est bien connecté   
+                    client_socket.connect(address_host)        # si le serveur est bien connecté   
                     logger.info('the client was successfuly connected')
                     connected = True        # je considere que si il a reussi à etablir la connexion, il arrivera à se connecter au bout d'un moment
                 except socket.error:
@@ -473,10 +473,10 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
            
         
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        adress_host= (IP_address_host, 3000)      # l'adresse du serveur host
+        address_host= (IP_address_host, 3000)      # l'adresse du serveur host
         
         
-        verif_connexion_to_host(client_socket, adress_host, IP_address_host, path_CLI_local, JSON_file)         # verifier si on est bien connecté sinon attendre
+        verif_connexion_to_host(client_socket, address_host, IP_address_host, path_CLI_local, JSON_file)         # verifier si on est bien connecté sinon attendre
         
         
         sleep(10) 
