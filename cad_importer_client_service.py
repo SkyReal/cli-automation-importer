@@ -158,8 +158,6 @@ def verif_CLI(path_CLI_local):
             return True 
         else:                                                                                               #on fait l'opération avec les paramètres que l'utilisateur a inséré
             logger.info("Trying to join the XRCenter")
-            stdout = CLI_ope.stdout
-            logger.info(f"stdout :  {stdout}")
             x += 1                  
     return False
 
@@ -538,12 +536,6 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
         
         client_socket.close()
         
-        
-        log_directory = r'C:\ProgramData\cli_automation_importer'
-        log_file_path = os.path.join(log_directory, 'current_report.log')
-        new_log_file_path = os.path.join(log_directory, 'previous_report.log')
-        
-        copy_file(log_file_path, new_log_file_path)
         
         stop_program(wake_on_lan_activated)
         

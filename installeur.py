@@ -29,7 +29,7 @@ def create_config_file(config_file_path):
             "ip_address_server": "value_to_fill",
             "share_path": "value_to_fill",
             "XRCENTER": "https://ip_adress:port/",
-            "extensions": [".description", ".CATPart", ".CATProduct", ".CGR", "CATProcess", ".model", "3dxml", ".plmxml", ".jt", ".prt", ".asm", ".ifc", ".sldprt", ".sldasm", ".stp", ".step", ".stl", ".iam", ".ipt", ".x_t", ".dwg"]
+            "extensions": [".description", ".CATPart", ".CATProduct", ".CGR", ".CATProcess", ".model", ".3dxml", ".plmxml", ".jt", ".prt", ".asm", ".ifc", ".sldprt", ".sldasm", ".stp", ".step", ".stl", ".iam", ".ipt", ".x_t", ".dwg"]
             }
         with open(config_file_path, 'w') as file:
              json.dump(cad_importer_config_file, file, indent=4)            # on cree le config file
