@@ -19,7 +19,7 @@ import json
 from datetime import datetime
 from subprocess import run
 from wakeonlan import send_magic_packet
-
+from struct import unpack 
 from json import dump
 from json import load 
 
@@ -236,10 +236,14 @@ def create_excel(excel_filename):
         
         
         
-def results_in_excel( path, time,  sheet, excel_filename, workbook ):
+def results_in_excel( path, time,  sheet, excel_filename, workbook, polygons, instances, prep ):
     row_index = sheet.max_row + 1                        # on ecrit à la dernière colonne où il y a la place
     sheet.cell(row=row_index, column=1, value=path)
     sheet.cell(row=row_index, column=2, value=time)
+    sheet.cell(row=row_index, column=3, value=polygons)
+    sheet.cell(row=row_index, column=4, value=instances)
+    sheet.cell(row=row_index, column=5, value=prep)
+    
     full_path = os.path.join('C:\\ProgramData\\cli_automation_importer', excel_filename)
     workbook.save(full_path)
     print('Results have been successfully saved')
@@ -280,6 +284,20 @@ def handle_description_files(file, cad_list):
         
         
 # PARTIE SERVEUR 
+
+    
+def get_informations(client_socket):
+    try: 
+        id_length = client_socket.recv(4)                                             # longeur de l'id workspace
+        received_id_length = unpack('!I', id_length)[0]                               # traduit de binaire a string
+        sleep(3)
+        informations_bytes = client_socket.recv(received_id_length)                   # le fichier arrive en binaire, normalement sans erreur si il est apres select()        
+        informations =informations_bytes.decode('utf-8')                             # on le retransforme en string
+        sleep(3)
+    except Exception:
+        print('an error has occured, please try again')
+        return ''
+    return informations 
 
 def send_wake_on_lan(client_socket, wake_on_lan):
     if wake_on_lan:
@@ -379,7 +397,7 @@ def computer_in_work(CAD_files, working_list, client_state, result_dictionary):
 
 
 
-def reception(working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import, excel_filename, sheet, workbook):
+def reception(working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import, excel_filename, sheet, workbook, list_of_informations):
     while True:
         if len(client_state)>0:
             if working_list != []:
@@ -393,17 +411,25 @@ def reception(working_list, client_state, CAD_files_copy, result_dictionary, num
                             print(f'error with "{client_socket}", the client can not be reach')         
                 if clients_reception_readable != []:
                     for sleeping_clients in clients_reception_readable:
-                        try:                                                                                                    # on peut deja lire leurs contenus avec readable, il faudra juste gerer les erreurs de wifi
-                            result_wait_bytes = sleeping_clients.recv(1024)                                                     # on regarde si ils renvoient quelque chose
-                            result_wait = result_wait_bytes.decode()
+                        try:  
+                            result_wait = get_informations(sleeping_clients)                                                      # on peut deja lire leurs contenus avec readable, il faudra juste gerer les erreurs de wifi
                             result_wait_float = float(result_wait)
+                            polygons = get_informations(sleeping_clients)                                                      # on peut deja lire leurs contenus avec readable, il faudra juste gerer les erreurs de wifi
+                            polygons_float = float(polygons)
+                            instances = get_informations(sleeping_clients)                                                     
+                            instances_float = float(instances)
+                            result_prep = get_informations(sleeping_clients)                                                      
+                            result_prep_float = float(result_prep)
                             for path in result_dictionary.keys():                                                               # on remplace les clients sockets par le timer recu apres l'import 
                                 if result_dictionary[path] == sleeping_clients:
                                         result_dictionary[path] =  result_wait_float 
+                                        list_of_informations[0] = polygons_float
+                                        list_of_informations[1] = instances_float
+                                        list_of_informations[2] = result_prep_float
                                         try:
-                                            results_in_excel(path, result_wait_float, sheet, excel_filename, workbook )
+                                            results_in_excel( path, result_wait_float,  sheet, excel_filename, workbook, list_of_informations[0] , list_of_informations[1], list_of_informations[2] )
                                         except KeyboardInterrupt:
-                                            results_in_excel(path, -2 , sheet, excel_filename, workbook )
+                                            results_in_excel( path, result_wait_float,  sheet, excel_filename, workbook, 0, 0, 0 )
                                         break 
                             number_of_received_import[0] +=1
                             client_state[sleeping_clients] = 'ready'    
@@ -440,7 +466,7 @@ def start_wake_on_lan(mac_addresses, wake_on_lan):
     return 
 
 
-def threading_in_progress(serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan, excel_filename,  sheet, workbook):
+def threading_in_progress(serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan, excel_filename,  sheet, workbook, list_of_informations):
     
     accept_thread = Thread(target = accept_connexions, args=(serversocket, CAD_files_copy, client_state, save_id_workspace, new_clients_counter, CAD_files_copy, mapping_username, mapping_password, CLI_version, wake_on_lan), daemon = True)          #on verifie en permanence si il y a une adresse dispo
     accept_thread.start()
@@ -448,7 +474,7 @@ def threading_in_progress(serversocket, CAD_files, working_list, client_state, s
     send_thread = Thread(target = computer_in_work, args= (CAD_files , working_list, client_state, result_dictionary), daemon = True)
     send_thread.start()    
     
-    reception_thread = Thread(target = reception , args= (working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import, excel_filename,  sheet, workbook), daemon = True)
+    reception_thread = Thread(target = reception , args= (working_list, client_state, CAD_files_copy, result_dictionary, number_of_received_import, excel_filename,  sheet, workbook, list_of_informations), daemon = True)
     reception_thread.start()
     
     WOL_thread = Thread(target = start_wake_on_lan , args= (mac_addresses, wake_on_lan) , daemon = True)
@@ -530,7 +556,7 @@ def main():
     client_state = {}
     number_of_received_import = [0]           # pour compter le nombre d'import recu
     new_clients_counter = [0]
-    
+    list_of_informations = [0, 0, 0]   # for polygons, instances, and check if the 3d visualization was ok 
     
     # verif sur le mapping
     
@@ -596,7 +622,7 @@ def main():
     
     
     try:
-        accept_thread, send_thread, reception_thread, WOL_thread = threading_in_progress( serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan, excel_filename,  sheet, workbook)  
+        accept_thread, send_thread, reception_thread, WOL_thread = threading_in_progress( serversocket, CAD_files, working_list, client_state, save_id_workspace, CAD_files_copy, result_dictionary, number_of_received_import, new_clients_counter, mapping_username, mapping_password, CLI_version, mac_addresses, wake_on_lan, excel_filename,  sheet, workbook, list_of_informations)  
     except KeyboardInterrupt:
         for clients in client_state.keys():
             clients.close()

@@ -18,6 +18,20 @@ There are two parts for this program:
 	
 	-> If you use the WakeOnLan, you must enable it in the bios setting and in the parameters of your network card. You also must be on the same ETHERNET.
 
+# What is in the excel?
+
+on each line of the excel:
+
+	The first column is the path of the file.
+	The second column is the time of import : 
+		if -1, the import encountered a problem while importing
+		if -2, a connexion error has happend, or an unknown problem
+	The third column is the number of polygon. if 0, there was a problem.
+	The fourth column is the number of polygon. if 0, there was a problem.
+	The fifth column is the result of the preparation for 3d visualization:
+		if 0, it couldnt happend.
+		if 1, it is good.
+
 # What if you made a mistake anywhere in the process, or if it does not work on a client?
 
 You can stop the server program whenever you want by using CTRL + C. It will also stop the clients if they were connected.

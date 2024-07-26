@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+    # -*- coding: utf-8 -*-
 """
 Created on Thu Jun 27 16:53:35 2024
 
@@ -23,6 +23,9 @@ from ipaddress import ip_address, AddressValueError
 import logging
 from sys import argv
 from struct import unpack
+from struct import pack
+import re 
+
 
 IDLE_TIME_OUT = 1000     # temps en secondes pour lequel le programme s'arrete
 PING_NUMBER = 20 
@@ -163,18 +166,47 @@ def verif_CLI(path_CLI_local):
 
 def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
     logger.info(f'your file "{file}" is sent in SkyReal')
-    commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}"' #commande pour importer sur le deck
+    commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}" --disable-3d-engine-visualization' #commande pour importer sur le deck
     start = time()
     import_final = run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True)
     end = time()
-    time_record= end - start                                                                           # on mesure le temps de chaque import
+    time_record= end - start                                                                                                        # on mesure le temps de chaque import
     if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower() or import_final.returncode != 0 :
             logger.info(f' \n the file "{file}" can not be put in SkyReal \n ')   
-            time_record= -1             # l'import a echoue
+            time_record= -1                                                                                                         # l'import a echoue
+            product_component_ID = ''                                                                                               #  on capture la sortie qui est le product component ID      (pas sur de moi ici)        
     else:
-        logger.info(f'your file "{file}" is in SkyReal') 
-    return time_record
+        logger.info(f'your file "{file}" is in SkyReal, yet without 3D-visualization')        
+        product_component_ID = import_final.stdout                                                                                    # on capture la sortie qui est le product component ID      (pas sur de moi ici)        
+    return time_record, product_component_ID
 
+def get_polygons_number(path_CLI_local, save_id_workspace, product_component_ID):
+    
+    command_get_polygons = f'& "{path_CLI_local}" cad get-infos "{save_id_workspace}" "{product_component_ID}"'  # as t on besoin de & ?
+    polygons_and_instances = run(["Powershell", "-Command", command_get_polygons], capture_output=True, text=True)
+    
+    if polygons_and_instances.returncode != 0:          # verifier que la commande s'est bien run
+        return 0,0
+    
+    pattern = r'{"polygonCount":(\d+),"instanceCount":(\d+)}'     # Chercher le motif spécifique dans la chaîne de caractères
+    match = re.search(pattern, polygons_and_instances.stdout)
+    
+    if match:
+        polygon_count = int(match.group(1))     
+        instance_count = int(match.group(2))
+        return polygon_count, instance_count
+    else:
+        return 0, 0
+
+def prepare_CAD_visualization(path_CLI_local, save_id_workspace, product_component_ID):
+    
+    command_prepare_visualization = f'& "{path_CLI_local}" preparevisualization "{save_id_workspace}" "{product_component_ID}" ' #commande pour preparer la visualisation
+    prepare_visualization = run(["Powershell", "-Command", command_prepare_visualization], capture_output=True, text=True)
+    
+    if prepare_visualization.returncode != 0:          # verifier que la commande s'est bien run
+        return 0
+    else: 
+        return 1
 
 def check_CLI_version(path_CLI_local, CLI_version):
     powershell_command_cli_version = f'''
@@ -238,6 +270,14 @@ def ping_until_answer(ip_address, ping_result):
     logger.info('the client was not able to reach the server. It will try again ')
     ping_result =False                                                  # commande a priori inutile mais on ne sait jamais ( le ping result est par defaut False)
     return ping_result 
+
+
+
+def send_informations(client_socket, informations):
+    informations_bytes=  str(informations).encode('utf-8')              # parce qu'on travaille avec des nombres
+    message_length = pack('!I', len(informations_bytes))
+    client_socket.sendall(message_length + informations_bytes)
+    return 
 
 
 def verif_IP_address(ip_address_host):               # verifier la validite de l'adresse ip du host
@@ -333,6 +373,7 @@ def get_ID_workspace(client_socket, id_workspace):
 
         
 def use_data(client_socket, time_record, id_workspace, path_CLI_local):
+    product_component_ID = ''
     try:
         file_to_receive_bytes = client_socket.recv(4096)            # le fichier arrive en binaire, normalement sans erreur si il est apres select()
         file_to_receive= file_to_receive_bytes.decode('utf-8')          # on le retransforme en string
@@ -346,17 +387,36 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
             logger.warning('the CAD file can not be found (do you have the access?') 
             time_record= -2 
         else:
-            time_record = import_CAD_file(time_record, id_workspace, path_CLI_local, file_to_receive)
+            time_record, product_component_ID = import_CAD_file(time_record, id_workspace, path_CLI_local, file_to_receive)
+            if product_component_ID != '':
+                polygon_count, instance_count = get_polygons_number(path_CLI_local, id_workspace, product_component_ID)
+            else: 
+                polygon_count, instance_count = -1 , -1                        # signaler un probleme 
+                
+            result_prep = prepare_CAD_visualization(path_CLI_local, id_workspace, product_component_ID)
+                
         
     # envoyer les resultats
-    
-        time_record_byte = str(time_record).encode()          # on traduit le float en chaine de caractere que l'on met en bytes
-        client_socket.send(time_record_byte)
+        
+        send_informations(client_socket, time_record )
+        
+        sleep(1)
+        
+        send_informations(client_socket, polygon_count )
+        
+        sleep(1)
+        
+        send_informations(client_socket, instance_count )
+        
+        sleep(1)
+        
+        send_informations(client_socket, result_prep )
         
     except KeyboardInterrupt:
         return False
     return True
         
+
 
 def verif_connexion_to_host(client_socket, address_host, IP_address_host, path_CLI_local, JSON_file):
     connected = False
