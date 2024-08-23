@@ -272,10 +272,9 @@ def handle_description_files(file, cad_list):
     else: 
         try: 
             new_dictionary = json.loads(file_content)       # on fait devenir le .description, un fichier json en dictionnaire 
-            full_description_path = new_dictionary["SelfPath"]
             product_name = new_dictionary["ProductFileName"] 
-            new_self_path = full_description_path.rsplit('\\', 1)[0] + '\\' + product_name
-            cad_list.append(new_self_path)
+            new_path = os.path.dirname(file) + '\\' + product_name
+            cad_list.append(new_path)
         except Exception:
             print(f'Your file {file} was not correct and will not be imported')
             return 
