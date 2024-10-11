@@ -431,7 +431,8 @@ def main():
     parser.add_argument('--rep', type = str, help = 'name of your repertory containing the CAD files.', required= True)
     parser.add_argument('--credentials', type = str, help = 'file path of a json containing login and password fields')
     parser.add_argument('--json_mac', type = str, help = 'name of your json containing the mac adresses of the clients when the program ends.')
-    parser.add_argument('-W', type = bool , help = 'enable WakeOnLan or disable it (True/False) ')
+    parser.add_argument('-W', action = 'store_true' , help = 'enable WakeOnLan or disable it (True/False) ')
+    parser.add_argument('-F', action = 'store_true' , help = 'force mapping (remove previous mapping if it already exists) ')
     parser.add_argument('--id_workspace', type = str , help = 'import in a specified workspace ')  #le nom du fichier excel
 
 
@@ -464,6 +465,7 @@ def main():
 
     if args.credentials:
         mapping_username, mapping_password = load_credentials_file(args.credentials)
+        print("Usr and pass : ", mapping_username, " ; ", mapping_password)
 
     if mapping_username == None or mapping_password == None:
         mapping_username= input("username with domain name:")
@@ -496,6 +498,9 @@ def main():
     
     # verif sur le mapping
     
+    if(args.F):
+        remove_smb_mapping(drive_letter)
+
     if not create_smb_mapping(mapping_username, mapping_password ,drive_letter, share_path):
         return
     
@@ -567,6 +572,7 @@ def main():
         
     while number_of_received_import[0] < len( CAD_files_copy ):
         if len(client_state) != 0:
+            print(client_state)
             sleep(2)
         else: 
             print(' there are no clients...')
@@ -578,8 +584,6 @@ def main():
     
     clear_XRCENTER_config_file(base_address)
 
-    results_in_excel(result_dictionary, excel_filename, client_state)
-    
     serversocket.close()
     
     return 

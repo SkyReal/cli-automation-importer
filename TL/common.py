@@ -9,14 +9,15 @@ import os
 def create_smb_mapping(username, password, drive_letter, remote_path):
     
     powershell_identification_orders= f"""
-    $user = '{username}'
-    $securePassword = '{password}'
-    $pass = ConvertTo-SecureString $securePassword -AsPlainText -Force
-    $credential = New-Object System.Management.Automation.PSCredential ($user, $pass)
-    New-SMbGlobalMapping -RemotePath '{remote_path}' -Credential $credential -LocalPath {drive_letter}:
+    $user = "{username}"
+    $securePassword = ConvertTo-SecureString "{password}" -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential ($user, $securePassword)
+    New-SMBGlobalMapping -RemotePath "{remote_path}" -Credential $credential -LocalPath "{drive_letter}:"
     """
+
+    print("pwsh \n", powershell_identification_orders)
     try:
-        powershell_command_1 = run([ "Powershell", "-Command",  powershell_identification_orders], capture_output=True, text=True)
+        powershell_command_1 = run([ "pwsh", "-Command",  powershell_identification_orders], capture_output=True, text=True)
         print('This program mapped the repertory you asked for on the letter', drive_letter)
     except Exception as e:
         print("error :", e)
@@ -32,7 +33,7 @@ def remove_smb_mapping(drive_letter):
     Remove-SmbGlobalMapping -LocalPath {drive_letter}: -Force
     """
     try:
-        powershell_remove_command = run(["Powershell", "-Command", pwsh_rmv], capture_output=True, text=True)
+        powershell_remove_command = run(["pwsh", "-Command", pwsh_rmv], capture_output=True, text=True)
         print('Removed global mapping on the letter ', drive_letter)
     except Exception as e:
         print("error :", e)
@@ -47,7 +48,7 @@ def correct_mapping_letter(drive_letter):
     possible_letters = ['Z', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y']
     for letter in possible_letters:
         powershell_verification_orders = "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Name"
-        powershell_command_verif = run([ "Powershell", "-Command",  powershell_verification_orders], capture_output=True, text=True)
+        powershell_command_verif = run([ "pwsh", "-Command",  powershell_verification_orders], capture_output=True, text=True)
         if letter not in powershell_command_verif.stdout:
             drive_letter = letter
     return  drive_letter

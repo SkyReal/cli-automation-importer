@@ -74,7 +74,7 @@ def verif_CLI(path_CLI_local):
     x=0
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
     while x < 10:                                                                                           # max 10 essais
-        CLI_ope = run(["Powershell", "-Command", commande_CLI_opti1], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        CLI_ope = run(["pwsh", "-Command", commande_CLI_opti1], capture_output=True, text=True, encoding='utf-8', errors='replace')
         logger.info(CLI_ope)
         if 'success' in CLI_ope.stdout.lower():                                                             #le XRCENTER se lance avec le chemin basique 
             logger.info("CLI functional")
@@ -88,7 +88,7 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
     logger.info(f'your file "{file}" is sent in SkyReal')
     commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}" --disable-3d-engine-visualization' #commande pour importer sur le deck
     start = time()
-    import_final = run(["Powershell", "-Command", commande_fichier_import], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    import_final = run(["pwsh", "-Command", commande_fichier_import], capture_output=True, text=True, encoding='utf-8', errors='replace')
     end = time()
     time_record= end - start                                                                                                        # on mesure le temps de chaque import
     if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower() or import_final.returncode != 0 :
@@ -102,10 +102,9 @@ def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
     return time_record, product_component_ID
 
 def get_polygons_number(path_CLI_local, save_id_workspace, product_component_ID):
-    
+
     command_get_polygons = f'& "{path_CLI_local}" cad get-infos "{save_id_workspace}" "{product_component_ID}"'  # as t on besoin de & ?
-    polygons_and_instances = run(["Powershell", "-Command", command_get_polygons], capture_output=True, text=True, encoding='utf-8', errors='replace')
-    
+    polygons_and_instances = run(["pwsh", "-Command", command_get_polygons], capture_output=True, text=True, encoding='utf-8', errors='replace')
     if polygons_and_instances.returncode != 0:          # verifier que la commande s'est bien run
         return 0,0
     
@@ -121,19 +120,25 @@ def get_polygons_number(path_CLI_local, save_id_workspace, product_component_ID)
 
 def prepare_CAD_visualization(path_CLI_local, save_id_workspace, product_component_ID):
     
-    command_prepare_visualization = f'& "{path_CLI_local}" preparevisualization "{save_id_workspace}" "{product_component_ID}" ' #commande pour preparer la visualisation
-    prepare_visualization = run(["Powershell", "-Command", command_prepare_visualization], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    command_prepare_visualization = f'& "{path_CLI_local}" cad preparevisualization "{save_id_workspace}" "{product_component_ID}" ' #commande pour preparer la visualisation
     
+    start = time()
+    prepare_visualization = run(["pwsh", "-Command", command_prepare_visualization], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    end = time()
+    time_record= end - start   
+
+    
+    print("preparevisualization code ", str(prepare_visualization.returncode))
     if prepare_visualization.returncode != 0:          # verifier que la commande s'est bien run
-        return 0
+        return -1
     else: 
-        return 1
+        return time_record
 
 def check_CLI_version(path_CLI_local, CLI_version):
     powershell_command_cli_version = f'''
     & '{path_CLI_local}' --version
     '''
-    powershell_check_CLI = run(["Powershell", "-Command", powershell_command_cli_version], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    powershell_check_CLI = run(["pwsh", "-Command", powershell_command_cli_version], capture_output=True, text=True, encoding='utf-8', errors='replace')
     for caracters in powershell_check_CLI.stdout:
         if caracters == '-':
             break
@@ -311,7 +316,7 @@ def use_data(client_socket, time_record, id_workspace, path_CLI_local):
             time_record, product_component_ID = import_CAD_file(time_record, id_workspace, path_CLI_local, file_to_receive)
             if product_component_ID != '':
                 polygon_count, instance_count = get_polygons_number(path_CLI_local, id_workspace, product_component_ID)
-            else: 
+            else:
                 polygon_count, instance_count = -1 , -1                        # signaler un probleme 
                 
             result_prep = prepare_CAD_visualization(path_CLI_local, id_workspace, product_component_ID)
@@ -348,7 +353,7 @@ def verif_connexion_to_host(client_socket, address_host, IP_address_host, path_C
         else:
             if not verif_CLI(path_CLI_local):                                                   # on a reussi a pinger, il reste a se connecter
                 path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )
-                sleep(10)
+                sleep(5)
             else:  
                 try:
                     print("Server address :", address_host)
@@ -459,7 +464,7 @@ def main():
     verif_connexion_to_host(client_socket, address_host, IP_address_host, path_CLI_local, JSON_file)         # verifier si on est bien connecté sinon attendre
         
         
-    sleep(10) 
+    sleep(5) 
         
     # en premier lieu, on regarde si le wake_on_lan est actif
         
