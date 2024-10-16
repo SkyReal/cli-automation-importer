@@ -572,10 +572,9 @@ def main():
         
     while number_of_received_import[0] < len( CAD_files_copy ):
         if len(client_state) != 0:
-            print(client_state)
             sleep(2)
         else: 
-            print(' there are no clients...')
+            print('Waiting for clients')
             sleep(5)
     
     closing_thread(accept_thread, send_thread, reception_thread, WOL_thread)

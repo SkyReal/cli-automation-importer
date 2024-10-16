@@ -27,7 +27,7 @@ PING_NUMBER = 20
 
 # on va repertorier les erreurs dans un journal
 
-log_directory = r'C:\ProgramData\cli_automation_importer'
+log_directory = r'C:/ProgramData/cli_automation_importer'
 log_file_path = os.path.join(log_directory, 'report.log')
 
 if not os.path.exists(log_directory):
@@ -36,7 +36,7 @@ if not os.path.exists(log_directory):
 logging.basicConfig(
     level=logging.INFO,                                     # on affichera les messages de gravite minimale 'info'
     format='%(asctime)s - %(levelname)s - %(message)s',     # le format des messages affiches 
-    handlers=[logging.FileHandler(log_file_path, mode = 'w'),logging.FileHandler("smbprotocol_debug.log"), logging.StreamHandler()]   # le path du fichier ou seront ecrites les erreurs de debogage
+    handlers=[logging.FileHandler(log_file_path, mode = 'w'), logging.StreamHandler()]   # le path du fichier ou seront ecrites les erreurs de debogage
 )
 
 logger = logging.getLogger('logger')        #initialisation du logger
@@ -75,29 +75,29 @@ def verif_CLI(path_CLI_local):
     commande_CLI_opti1= f'& "{path_CLI_local}" health ping'
     while x < 10:                                                                                           # max 10 essais
         CLI_ope = run(["pwsh", "-Command", commande_CLI_opti1], capture_output=True, text=True, encoding='utf-8', errors='replace')
-        logger.info(CLI_ope)
         if 'success' in CLI_ope.stdout.lower():                                                             #le XRCENTER se lance avec le chemin basique 
             logger.info("CLI functional")
             return True 
         else:                                                                                               #on fait l'opération avec les paramètres que l'utilisateur a inséré
             logger.info("Trying to join the XRCenter")
+            sleep(12)
             x += 1                  
     return False
 
 def import_CAD_file(time_record, save_id_workspace, path_CLI_local, file):
-    logger.info(f'your file "{file}" is sent in SkyReal')
+    logger.info(f'Importing "{file}"')
     commande_fichier_import= f'& "{path_CLI_local}"  cad import "{save_id_workspace}" "{file}" --disable-3d-engine-visualization' #commande pour importer sur le deck
     start = time()
     import_final = run(["pwsh", "-Command", commande_fichier_import], capture_output=True, text=True, encoding='utf-8', errors='replace')
     end = time()
     time_record= end - start                                                                                                        # on mesure le temps de chaque import
     if "failed" in import_final.stdout.lower() or "error" in import_final.stdout.lower() or import_final.returncode != 0 :
-            logger.info(f' \n the file "{file}" can not be put in SkyReal \n ')
+            logger.info(f' \n Import failed "{file}"\n')
             print(import_final.stdout)
             time_record= -1                                                                                                         # l'import a echoue
             product_component_ID = ''                                                                                               #  on capture la sortie qui est le product component ID      (pas sur de moi ici)        
     else:
-        logger.info(f'your file "{file}" is in SkyReal, yet without 3D-visualization')        
+        logger.info(f'Imported successfully "{file}"')        
         product_component_ID = import_final.stdout                                                                                    # on capture la sortie qui est le product component ID      (pas sur de moi ici)        
     return time_record, product_component_ID
 
@@ -353,12 +353,12 @@ def verif_connexion_to_host(client_socket, address_host, IP_address_host, path_C
         else:
             if not verif_CLI(path_CLI_local):                                                   # on a reussi a pinger, il reste a se connecter
                 path_CLI_local = get_config_files_datas(path_CLI_local, JSON_file )
-                sleep(5)
+                sleep(10)
             else:  
                 try:
                     print("Server address :", address_host)
                     client_socket.connect(address_host)        # si le serveur est bien connecté   
-                    logger.info('the client was successfuly connected')
+                    logger.info('Connected!')
                     connected = True        # je considere que si il a reussi à etablir la connexion, il arrivera à se connecter au bout d'un moment
                 except OSError as e:
                     # Log l'erreur avec le code d'erreur et le message
@@ -391,7 +391,7 @@ class cad_importer_client(win32serviceutil.ServiceFramework):
             (self._svc_name_, '')
         )
         self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-        
+        logger.info("initializing main")
         # Logique de service
         main()
 
